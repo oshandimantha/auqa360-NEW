@@ -159,6 +159,9 @@ const int PH_SAMPLES = 10;
 const float PH_SMOOTH_ALPHA = 0.30;
 float PH_CALIBRATION_VALUE = 21.34 + 1.25;
 float PH_SLOPE = -5.70;
+float PH_OFFSET = -4.0;   // Offset to correct pH reading (adjust if pH still off)
+                          // Fresh water should read ~7.0. If reading too HIGH, decrease this.
+                          // If reading too LOW, increase this.
 
 int TDS_RAW_CLEAN = 112;
 int TDS_RAW_CAL = 2625;
@@ -219,6 +222,7 @@ bool pumpAutoMode = true;       // true = Auto (ON >=30%, OFF <30%), false = Man
 bool feederActive = false;      // True when servo is currently rotating
 bool feederEnabled = true;      // Enable/disable feeder system (servo control)
 bool feederAutoMode = true;     // true = Auto (scheduled), false = Manual
+bool feederAiMode = false;      // true = AI model controls feeding
 bool rtcSyncEnabled = true;
 
 // Dynamic feeding schedules (synced from MongoDB via MQTT)
@@ -418,21 +422,42 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       Serial.println(" feeding schedules from MongoDB");
     }
     else if (action != nullptr && strcmp(action, "trigger") == 0) {
-      // Manual feed trigger - only in manual mode when feeder is enabled
-      if (!feederAutoMode && feederEnabled) {
+      // Feed trigger - works in manual mode OR from AI source
+      const char* source = doc["source"];
+      bool isAiTrigger = (source != nullptr && strcmp(source, "ai") == 0);
+      
+      if (isAiTrigger && feederAiMode && feederEnabled) {
+        Serial.println("🧠 AI feed triggered!");
+        feederRotate();
+      } else if (!feederAutoMode && !feederAiMode && feederEnabled) {
         Serial.println("🍽 Manual feed triggered!");
         feederRotate();
       } else if (feederAutoMode) {
         Serial.println("⚠️ Cannot manual feed in Auto mode");
+      } else if (feederAiMode && !isAiTrigger) {
+        Serial.println("⚠️ Cannot manual feed in AI mode");
       } else {
         Serial.println("⚠️ Feeder is disabled");
       }
     }
     else if (action != nullptr && strcmp(action, "setMode") == 0) {
-      // Set auto/manual mode
-      feederAutoMode = state;  // true = auto, false = manual
-      Serial.print("🍽 Feeder mode: ");
-      Serial.println(state ? "AUTO (scheduled)" : "MANUAL");
+      // Set mode: ai, auto, or manual
+      const char* mode = doc["mode"];
+      if (mode != nullptr && strcmp(mode, "ai") == 0) {
+        feederAiMode = true;
+        feederAutoMode = false;
+        Serial.println("🍽 Feeder mode: AI (ML model)");
+      } else if (state) {
+        // state=true means auto
+        feederAutoMode = true;
+        feederAiMode = false;
+        Serial.println("🍽 Feeder mode: AUTO (scheduled)");
+      } else {
+        // state=false means manual
+        feederAutoMode = false;
+        feederAiMode = false;
+        Serial.println("🍽 Feeder mode: MANUAL");
+      }
     }
     else {
       // Enable/disable feeder system
@@ -573,6 +598,7 @@ void publishActuatorStatus() {
   doc["feeder"] = feederEnabled;         // Feeder system enabled/disabled
   doc["feederActive"] = feederActive;    // True when servo is currently rotating
   doc["feederAutoMode"] = feederAutoMode; // true = Auto, false = Manual
+  doc["feederAiMode"] = feederAiMode;    // true = AI model controls feeding
   doc["scheduleCount"] = feedScheduleCount;  // Number of synced schedules
   doc["rtc"] = rtcSyncEnabled;
   
@@ -610,8 +636,18 @@ void publishSensorData() {
   RtcDateTime now = Rtc.GetDateTime();
   bool motion = (digitalRead(PIR_PIN) == HIGH);
   int co2ppm = mhz19.getCO2();
+  // Filter out invalid CO2 readings (0 = sensor warmup, negative = error)
+  bool co2Valid = (co2ppm > 0);
   float ph = readPH();
+  
+  // Flush ADC between different analog sensors to avoid cross-talk
+  // ESP32 ADC multiplexer retains charge from previous channel
+  analogRead(TDS_PIN); delay(10);  // Dummy read to settle ADC on TDS channel
+  
   float tds = readTDS();
+  
+  analogRead(TURB_PIN); delay(10); // Dummy read to settle ADC on turbidity channel
+  
   int turb = readTurbidity();
   float tempC = readTemperatureC();
   float waterCm = readUltrasonicCm();
@@ -654,10 +690,14 @@ void publishSensorData() {
   
   // CO2 Level
   Serial.print("💨 CO2:            ");
-  Serial.print(co2ppm);
-  Serial.print(" ppm  [");
-  Serial.print(getCo2Status(co2ppm));
-  Serial.println("]");
+  if (co2Valid) {
+    Serial.print(co2ppm);
+    Serial.print(" ppm  [");
+    Serial.print(getCo2Status(co2ppm));
+    Serial.println("]");
+  } else {
+    Serial.println("N/A (sensor warming up)");
+  }
   
   // TDS Level
   Serial.print("💧 TDS:            ");
@@ -749,7 +789,10 @@ void publishSensorData() {
   doc["ph"] = round(ph * 100) / 100.0;
   doc["turbidity"] = turb >= 0 ? turb : 0;
   doc["tds"] = round(tds * 10) / 10.0;
-  doc["co2"] = co2ppm;
+  // Only include CO2 if the reading is valid (skip warmup zeros)
+  if (co2Valid) {
+    doc["co2"] = co2ppm;
+  }
   doc["waterLevel"] = waterCm > 0 ? round(waterCm * 10) / 10.0 : 0;  // Send in cm with 1 decimal
   doc["waterLevelPercent"] = waterPercent;  // Water level as percentage
   doc["pir"] = motion;
@@ -769,7 +812,9 @@ void publishSensorData() {
   // Add status indicators
   doc["tempStatus"] = getTempStatus(tempC);
   doc["phStatus"] = getPhStatus(ph);
-  doc["co2Status"] = getCo2Status(co2ppm);
+  if (co2Valid) {
+    doc["co2Status"] = getCo2Status(co2ppm);
+  }
   
   char buffer[512];
   serializeJson(doc, buffer);
@@ -897,7 +942,10 @@ float readPH() {
 
   float avg = (float)sum / (float)(PH_SAMPLES - 4);
   float volt = avg * 3.3f / 4095.0f;
-  float ph = PH_SLOPE * volt + PH_CALIBRATION_VALUE;
+  float ph = PH_SLOPE * volt + PH_CALIBRATION_VALUE + PH_OFFSET;
+
+  // Clamp to valid pH range (0-14)
+  ph = constrain(ph, 0.0f, 14.0f);
 
   phSmooth = phSmooth * (1.0f - PH_SMOOTH_ALPHA) + ph * PH_SMOOTH_ALPHA;
   return phSmooth;

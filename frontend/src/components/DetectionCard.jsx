@@ -1,13 +1,15 @@
 import React from 'react';
 
 const DetectionCard = ({
-    fishCount = 0,
-    overallStatus = 'Normal',
-    abnormalBehavior = 'None detected',
-    diseaseRisk = 'Low',
-    lastDetectionTime = null
+    fishCount = null,
+    overallStatus = null,
+    abnormalBehavior = 'Normal Behavior',
+    diseaseRisk = null,
+    lastDetectionTime = null,
+    hasData = false
 }) => {
     const getStatusColor = (status) => {
+        if (!status) return 'var(--color-gray-400)';
         switch (status.toLowerCase()) {
             case 'normal':
             case 'low':
@@ -21,6 +23,12 @@ const DetectionCard = ({
             default:
                 return 'var(--color-gray-400)';
         }
+    };
+
+    const getBehaviorColor = (behavior) => {
+        if (!hasData) return 'var(--color-gray-400)';
+        if (behavior === 'Abnormal Behavior') return 'var(--color-danger)';
+        return 'var(--color-success)';
     };
 
     return (
@@ -37,26 +45,24 @@ const DetectionCard = ({
                         className="stat-value"
                         style={{ color: getStatusColor(overallStatus) }}
                     >
-                        {overallStatus}
+                        {hasData ? overallStatus : 'Waiting...'}
                     </span>
                 </div>
 
                 <div className="detection-stat">
-                    <span className="stat-label">Fish Count</span>
-                    <span className="stat-value">{fishCount}</span>
+                    <span className="stat-label">Fish Disease Count</span>
+                    <span className="stat-value">
+                        {hasData ? (fishCount !== null ? fishCount : '—') : '—'}
+                    </span>
                 </div>
 
                 <div className="detection-stat">
-                    <span className="stat-label">Abnormal Behavior</span>
+                    <span className="stat-label">Behavior</span>
                     <span
                         className="stat-value"
-                        style={{
-                            color: abnormalBehavior === 'None detected'
-                                ? 'var(--color-success)'
-                                : 'var(--color-warning)'
-                        }}
+                        style={{ color: getBehaviorColor(abnormalBehavior) }}
                     >
-                        {abnormalBehavior}
+                        {hasData ? abnormalBehavior : 'Waiting...'}
                     </span>
                 </div>
 
@@ -66,7 +72,7 @@ const DetectionCard = ({
                         className="stat-value"
                         style={{ color: getStatusColor(diseaseRisk) }}
                     >
-                        {diseaseRisk}
+                        {hasData ? diseaseRisk : 'Waiting...'}
                     </span>
                 </div>
             </div>

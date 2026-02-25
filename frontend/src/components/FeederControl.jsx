@@ -4,10 +4,19 @@ import {
     createFeedingSchedule,
     updateFeedingSchedule,
     deleteFeedingSchedule,
-    toggleActuator
+    toggleActuator,
+    getLatestFishFeeding
 } from '../services/api';
+import socketService from '../services/socket';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Feeding level colors and icons
+const FEEDING_STYLES = {
+    0: { color: '#e74c3c', icon: '⛔', bg: 'rgba(231, 76, 60, 0.15)', border: 'rgba(231, 76, 60, 0.3)' },
+    1: { color: '#f39c12', icon: '🍽️', bg: 'rgba(243, 156, 18, 0.15)', border: 'rgba(243, 156, 18, 0.3)' },
+    2: { color: '#27ae60', icon: '✅', bg: 'rgba(39, 174, 96, 0.15)', border: 'rgba(39, 174, 96, 0.3)' }
+};
 
 const FeederControl = ({ feederState = {}, rtcTime, onModeChange }) => {
     const [schedules, setSchedules] = useState([]);
@@ -16,6 +25,10 @@ const FeederControl = ({ feederState = {}, rtcTime, onModeChange }) => {
     const [editingSchedule, setEditingSchedule] = useState(null);
     const [message, setMessage] = useState('');
     const [feedLoading, setFeedLoading] = useState(false);
+    const [feedingPrediction, setFeedingPrediction] = useState(null);
+
+    // Feeder mode: 'ai' | 'auto' | 'manual'
+    const currentMode = feederState.aiMode ? 'ai' : (feederState.autoMode ? 'auto' : 'manual');
 
     // New schedule form state
     const [formData, setFormData] = useState({
@@ -29,6 +42,16 @@ const FeederControl = ({ feederState = {}, rtcTime, onModeChange }) => {
     // Fetch schedules on mount
     useEffect(() => {
         fetchSchedules();
+        fetchLatestPrediction();
+
+        // Subscribe to AI feeding predictions
+        const unsubFeeding = socketService.subscribe('fish-feeding-prediction', (data) => {
+            setFeedingPrediction(data);
+        });
+
+        return () => {
+            unsubFeeding();
+        };
     }, []);
 
     const fetchSchedules = async () => {
@@ -43,21 +66,42 @@ const FeederControl = ({ feederState = {}, rtcTime, onModeChange }) => {
         }
     };
 
-    const handleModeToggle = async (isAutoMode) => {
+    const fetchLatestPrediction = async () => {
+        const data = await getLatestFishFeeding();
+        if (data && data.feedingLevel !== null) {
+            setFeedingPrediction(data);
+        }
+    };
+
+    const handleModeToggle = async (mode) => {
+        // Optimistic update — change UI instantly, don't wait for MQTT round-trip
+        if (mode === 'ai') {
+            if (onModeChange) onModeChange(false, true);
+        } else if (mode === 'auto') {
+            if (onModeChange) onModeChange(true, false);
+        } else {
+            if (onModeChange) onModeChange(false, false);
+        }
+
+        // Fire-and-forget API call in the background
         try {
-            await toggleActuator('feeder', isAutoMode, { action: 'setMode' });
-            if (onModeChange) onModeChange(isAutoMode);
-            setMessage(isAutoMode ? '✅ Auto mode enabled' : '✅ Manual mode enabled');
-            setTimeout(() => setMessage(''), 2000);
+            if (mode === 'ai') {
+                await toggleActuator('feeder', true, { action: 'setMode', mode: 'ai' });
+            } else if (mode === 'auto') {
+                await toggleActuator('feeder', true, { action: 'setMode' });
+            } else {
+                await toggleActuator('feeder', false, { action: 'setMode' });
+            }
         } catch (error) {
-            setMessage('❌ Failed to change mode');
+            console.error('Mode toggle failed:', error);
+            setMessage('❌ Failed to change mode — retrying...');
             setTimeout(() => setMessage(''), 2000);
         }
     };
 
     const handleFeedNow = async () => {
-        if (feederState.autoMode) {
-            setMessage('⚠️ Cannot manual feed in Auto mode');
+        if (currentMode !== 'manual') {
+            setMessage(`⚠️ Cannot manual feed in ${currentMode === 'ai' ? 'AI' : 'Auto'} mode`);
             setTimeout(() => setMessage(''), 2000);
             return;
         }
@@ -190,45 +234,125 @@ const FeederControl = ({ feederState = {}, rtcTime, onModeChange }) => {
                 🍽️ Feeder Control
             </h3>
 
-            {/* Mode Toggle */}
+            {/* 3-Mode Toggle: AI / Auto / Manual */}
             <div style={{
                 display: 'flex',
-                gap: 'var(--spacing-md)',
-                marginBottom: 'var(--spacing-lg)'
+                gap: '4px',
+                marginBottom: 'var(--spacing-lg)',
+                background: 'rgba(0,0,0,0.3)',
+                borderRadius: '10px',
+                padding: '4px'
             }}>
                 <button
-                    onClick={() => handleModeToggle(true)}
+                    onClick={() => handleModeToggle('ai')}
                     style={{
                         ...buttonStyle,
                         flex: 1,
-                        background: feederState.autoMode
+                        padding: '10px 8px',
+                        background: currentMode === 'ai'
+                            ? 'linear-gradient(135deg, #9b59b6, #8e44ad)'
+                            : 'transparent',
+                        color: currentMode === 'ai' ? '#fff' : 'var(--color-gray-400)',
+                        border: 'none',
+                        fontSize: '0.85rem'
+                    }}
+                >
+                    🧠 AI Mode
+                </button>
+                <button
+                    onClick={() => handleModeToggle('auto')}
+                    style={{
+                        ...buttonStyle,
+                        flex: 1,
+                        padding: '10px 8px',
+                        background: currentMode === 'auto'
                             ? 'linear-gradient(135deg, #f39c12, #e67e22)'
-                            : 'rgba(0,0,0,0.3)',
-                        color: '#fff',
-                        border: feederState.autoMode
-                            ? 'none'
-                            : '1px solid rgba(255,255,255,0.2)'
+                            : 'transparent',
+                        color: currentMode === 'auto' ? '#fff' : 'var(--color-gray-400)',
+                        border: 'none',
+                        fontSize: '0.85rem'
                     }}
                 >
                     🤖 Auto Mode
                 </button>
                 <button
-                    onClick={() => handleModeToggle(false)}
+                    onClick={() => handleModeToggle('manual')}
                     style={{
                         ...buttonStyle,
                         flex: 1,
-                        background: !feederState.autoMode
+                        padding: '10px 8px',
+                        background: currentMode === 'manual'
                             ? 'linear-gradient(135deg, #3498db, #2980b9)'
-                            : 'rgba(0,0,0,0.3)',
-                        color: '#fff',
-                        border: !feederState.autoMode
-                            ? 'none'
-                            : '1px solid rgba(255,255,255,0.2)'
+                            : 'transparent',
+                        color: currentMode === 'manual' ? '#fff' : 'var(--color-gray-400)',
+                        border: 'none',
+                        fontSize: '0.85rem'
                     }}
                 >
-                    ✋ Manual Mode
+                    ✋ Manual
                 </button>
             </div>
+
+            {/* AI Feeding Prediction Display */}
+            {currentMode === 'ai' && (
+                <div style={{
+                    background: feedingPrediction
+                        ? (FEEDING_STYLES[feedingPrediction.feedingLevel]?.bg || 'rgba(0,0,0,0.2)')
+                        : 'rgba(0,0,0,0.2)',
+                    border: `1px solid ${feedingPrediction
+                        ? (FEEDING_STYLES[feedingPrediction.feedingLevel]?.border || 'rgba(255,255,255,0.1)')
+                        : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: 'var(--border-radius-md)',
+                    padding: 'var(--spacing-md)',
+                    marginBottom: 'var(--spacing-lg)',
+                    textAlign: 'center'
+                }}>
+                    {feedingPrediction ? (
+                        <>
+                            <div style={{
+                                fontSize: '2rem',
+                                marginBottom: '8px'
+                            }}>
+                                {FEEDING_STYLES[feedingPrediction.feedingLevel]?.icon || '❓'}
+                            </div>
+                            <div style={{
+                                fontSize: '1.3rem',
+                                fontWeight: 700,
+                                color: FEEDING_STYLES[feedingPrediction.feedingLevel]?.color || '#fff',
+                                marginBottom: '8px'
+                            }}>
+                                {feedingPrediction.feedingLabel}
+                            </div>
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                gap: '6px',
+                                fontSize: '0.8rem',
+                                color: 'var(--color-gray-400)',
+                                marginBottom: '8px'
+                            }}>
+                                <span>pH: <strong style={{ color: '#fff' }}>{feedingPrediction.sensorValues?.ph?.toFixed(1)}</strong></span>
+                                <span>TDS: <strong style={{ color: '#fff' }}>{feedingPrediction.sensorValues?.tds?.toFixed(0)}</strong></span>
+                                <span>Temp: <strong style={{ color: '#fff' }}>{feedingPrediction.sensorValues?.temperature?.toFixed(1)}°C</strong></span>
+                                <span>Turb: <strong style={{ color: '#fff' }}>{feedingPrediction.sensorValues?.turbidity}</strong></span>
+                                <span>CO₂: <strong style={{ color: '#fff' }}>{feedingPrediction.sensorValues?.co2} ppm</strong></span>
+                                <span>Conf: <strong style={{ color: '#fff' }}>{feedingPrediction.confidence}%</strong></span>
+                            </div>
+                            <p style={{
+                                marginTop: '4px',
+                                fontSize: '0.75rem',
+                                color: 'var(--color-gray-500)'
+                            }}>
+                                ML model uses 5 sensor inputs to predict feeding level every 30s
+                            </p>
+                        </>
+                    ) : (
+                        <p style={{ color: 'var(--color-gray-400)' }}>
+                            ⏳ Waiting for AI feeding prediction...
+                        </p>
+                    )}
+                </div>
+            )}
 
             {/* Manual Feed Button */}
             <div style={{
@@ -240,17 +364,17 @@ const FeederControl = ({ feederState = {}, rtcTime, onModeChange }) => {
             }}>
                 <button
                     onClick={handleFeedNow}
-                    disabled={feederState.autoMode || feedLoading}
+                    disabled={currentMode !== 'manual' || feedLoading}
                     style={{
                         ...buttonStyle,
                         padding: '15px 40px',
                         fontSize: '1.1rem',
-                        background: (!feederState.autoMode && !feedLoading)
+                        background: (currentMode === 'manual' && !feedLoading)
                             ? 'linear-gradient(135deg, #27ae60, #2ecc71)'
                             : 'rgba(100,100,100,0.3)',
                         color: '#fff',
-                        cursor: (!feederState.autoMode && !feedLoading) ? 'pointer' : 'not-allowed',
-                        opacity: feederState.autoMode ? 0.5 : 1
+                        cursor: (currentMode === 'manual' && !feedLoading) ? 'pointer' : 'not-allowed',
+                        opacity: currentMode !== 'manual' ? 0.5 : 1
                     }}
                 >
                     {feedLoading ? '🔄 Feeding...' : '🍽️ Feed Now'}
@@ -260,9 +384,11 @@ const FeederControl = ({ feederState = {}, rtcTime, onModeChange }) => {
                     fontSize: '0.8rem',
                     color: 'var(--color-gray-400)'
                 }}>
-                    {feederState.autoMode
-                        ? '⚠️ Disabled in Auto mode'
-                        : '✅ Click to trigger feeding'}
+                    {currentMode === 'ai'
+                        ? '🧠 AI model controls feeding automatically'
+                        : currentMode === 'auto'
+                            ? '⚠️ Disabled in Auto mode'
+                            : '✅ Click to trigger feeding'}
                 </p>
             </div>
 
@@ -271,7 +397,7 @@ const FeederControl = ({ feederState = {}, rtcTime, onModeChange }) => {
                 background: 'rgba(0,0,0,0.2)',
                 padding: 'var(--spacing-md)',
                 borderRadius: 'var(--border-radius-md)',
-                opacity: feederState.autoMode ? 1 : 0.5
+                opacity: currentMode === 'auto' ? 1 : 0.5
             }}>
                 <div style={{
                     display: 'flex',
@@ -282,7 +408,7 @@ const FeederControl = ({ feederState = {}, rtcTime, onModeChange }) => {
                     <h4 style={{ margin: 0 }}>📅 Feeding Schedules</h4>
                     <button
                         onClick={() => { resetForm(); setEditingSchedule(null); setShowAddModal(true); }}
-                        disabled={!feederState.autoMode}
+                        disabled={currentMode !== 'auto'}
                         style={{
                             ...buttonStyle,
                             padding: '6px 12px',

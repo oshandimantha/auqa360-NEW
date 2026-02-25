@@ -45,6 +45,20 @@ const TOPICS = {
         STATUS: 'aquasense/laptop/status',           // Laptop online/offline
     },
 
+    ML: {
+        WATER_QUALITY: 'aquasense/ml/water-quality', // Water quality predictions
+        FISH_DISEASE: 'aquasense/ml/fish-disease',   // Fish disease detections
+        FISH_FEEDING: 'aquasense/ml/fish-feeding',   // Fish feeding predictions
+        FISH_GAS: 'aquasense/ml/fish-gas',             // Fish gas detection
+        STATUS: 'aquasense/ml/status',               // ML service online/offline
+    },
+
+    // ML Command Topics (Backend publishes)
+    ML_CMD: {
+        CAMERA: 'aquasense/ml/cmd/camera',           // Switch camera
+        FISH_DISEASE: 'aquasense/ml/cmd/fish-disease', // Start/stop detection
+    },
+
     // System Topics
     SYSTEM: {
         ALERTS: 'aquasense/system/alerts',           // System alerts
@@ -63,6 +77,11 @@ const SUBSCRIBE_TOPICS = [
     TOPICS.PI.STREAM_STATUS,
     TOPICS.LAPTOP.DETECTION,
     TOPICS.LAPTOP.STATUS,
+    TOPICS.ML.WATER_QUALITY,
+    TOPICS.ML.FISH_DISEASE,
+    TOPICS.ML.FISH_FEEDING,
+    TOPICS.ML.FISH_GAS,
+    TOPICS.ML.STATUS,
 ];
 
 module.exports = {

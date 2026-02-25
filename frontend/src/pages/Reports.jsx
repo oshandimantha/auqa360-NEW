@@ -22,8 +22,7 @@ const Reports = () => {
         avgPh: '--',
         avgTurbidity: '--',
         avgTds: '--',
-        avgCo2: '--',
-        fishCountAvg: '--'
+        avgCo2: '--'
     });
     const [chartLoading, setChartLoading] = useState(true);
     const [lastUpdate, setLastUpdate] = useState(null);
@@ -107,8 +106,7 @@ const Reports = () => {
                         avgPh: avg(readings.map(r => r.ph)),
                         avgTurbidity: avg(readings.map(r => r.turbidity)) + ' NTU',
                         avgTds: avg(readings.map(r => r.tds)) + ' ppm',
-                        avgCo2: avg(readings.map(r => r.co2)) + ' ppm',
-                        fishCountAvg: avg(readings.map(r => r.fishCount))
+                        avgCo2: avg(readings.map(r => r.co2)) + ' ppm'
                     });
                 }
             }
@@ -135,8 +133,7 @@ const Reports = () => {
                 avgPh: '7.2',
                 avgTurbidity: '25 NTU',
                 avgTds: '300 ppm',
-                avgCo2: '500 ppm',
-                fishCountAvg: '12'
+                avgCo2: '500 ppm'
             });
         } finally {
             setChartLoading(false);
@@ -248,11 +245,6 @@ const Reports = () => {
                         <span className="stat-icon">🌿</span>
                         <span className="stat-label">CO2</span>
                         <span className="stat-value">{stats.avgCo2}</span>
-                    </div>
-                    <div className="stat-box">
-                        <span className="stat-icon">🐟</span>
-                        <span className="stat-label">Avg Fish Count</span>
-                        <span className="stat-value">{stats.fishCountAvg}</span>
                     </div>
                 </div>
             </section>

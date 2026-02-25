@@ -9,6 +9,7 @@ const detectionsRoutes = require('./routes/detections.routes');
 const actuatorsRoutes = require('./routes/actuators.routes');
 const reportsRoutes = require('./routes/reports.routes');
 const feedingScheduleRoutes = require('./routes/feedingSchedule.routes');
+const mlRoutes = require('./routes/ml.routes');
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.use('/api/detections', detectionsRoutes);
 app.use('/api/actuators', actuatorsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/feeding', feedingScheduleRoutes);
+app.use('/api/ml', mlRoutes);
 
 // 404 handler
 app.use((req, res) => {

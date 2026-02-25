@@ -33,6 +33,7 @@ export const SensorProvider = ({ children }) => {
         pumpAutoMode: true,
         feeder: false,
         feederAutoMode: true,
+        feederAiMode: false,
         scheduleCount: 0,
         rtc: false,
     });
@@ -170,6 +171,9 @@ export const SensorProvider = ({ children }) => {
             }
             if (data.feederAutoMode !== undefined) {
                 setActuatorStates(prev => ({ ...prev, feederAutoMode: data.feederAutoMode }));
+            }
+            if (data.feederAiMode !== undefined) {
+                setActuatorStates(prev => ({ ...prev, feederAiMode: data.feederAiMode }));
             }
             if (data.scheduleCount !== undefined) {
                 setActuatorStates(prev => ({ ...prev, scheduleCount: data.scheduleCount }));

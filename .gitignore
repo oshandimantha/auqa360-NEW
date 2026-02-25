@@ -20,3 +20,16 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# ML Service - Model files (too large for Git)
+ml-service/models/*.pkl
+ml-service/models/*.pt
+ml-service/models/*.pth
+ml-service/models/*.onnx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+ml-service/venv/
+ml-service/.env

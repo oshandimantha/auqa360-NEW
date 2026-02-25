@@ -58,6 +58,41 @@ class SocketService {
         this.socket.on('alert', (data) => {
             this.notifyListeners('alert', data);
         });
+
+        // Listen for ML water quality predictions
+        this.socket.on('water-quality-prediction', (data) => {
+            this.notifyListeners('water-quality-prediction', data);
+        });
+
+        // Listen for ML fish disease detections
+        this.socket.on('fish-disease-detection', (data) => {
+            this.notifyListeners('fish-disease-detection', data);
+        });
+
+        // Listen for ML fish feeding predictions
+        this.socket.on('fish-feeding-prediction', (data) => {
+            this.notifyListeners('fish-feeding-prediction', data);
+        });
+
+        // Listen for ML gas detection
+        this.socket.on('fish-gas-detection', (data) => {
+            this.notifyListeners('fish-gas-detection', data);
+        });
+
+        // Listen for device status changes
+        this.socket.on('device-status', (data) => {
+            this.notifyListeners('device-status', data);
+        });
+
+        // Listen for MQTT status
+        this.socket.on('mqtt-status', (data) => {
+            this.notifyListeners('mqtt-status', data);
+        });
+
+        // Listen for model status
+        this.socket.on('model-status', (data) => {
+            this.notifyListeners('model-status', data);
+        });
     }
 
     // Disconnect from the socket server

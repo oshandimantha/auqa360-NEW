@@ -4,6 +4,7 @@ const { TOPICS, SUBSCRIBE_TOPICS } = require('./mqtt.topics');
 const esp32Handler = require('./handlers/esp32.handler');
 const piHandler = require('./handlers/pi.handler');
 const laptopHandler = require('./handlers/laptop.handler');
+const mlHandler = require('./handlers/ml.handler');
 const systemStatus = require('../utils/systemStatus');
 
 class MQTTClient {
@@ -95,6 +96,8 @@ class MQTTClient {
             piHandler.handle(topic, payload, this.io);
         } else if (topic.startsWith('aquasense/laptop')) {
             laptopHandler.handle(topic, payload, this.io);
+        } else if (topic.startsWith('aquasense/ml')) {
+            mlHandler.handle(topic, payload, this.io);
         } else {
             console.log(`Unhandled topic: ${topic}`);
         }

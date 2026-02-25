@@ -2,12 +2,65 @@
     "name": "aquasense360",
     "version": "1.0.0",
     "description": "AquaSense360 - IoT Smart Fish Health Monitoring System",
+    "main": "electron/main.js",
+    "author": "AquaSense360",
+    "license": "MIT",
     "scripts": {
         "start": "concurrently -n backend,frontend -c blue,green \"npm start --prefix backend\" \"npm start --prefix frontend\"",
         "backend": "npm start --prefix backend",
-        "frontend": "npm start --prefix frontend"
+        "frontend": "npm start --prefix frontend",
+        "build:frontend": "cd frontend && npm run build",
+        "electron:dev": "npx electron .",
+        "predist": "cd frontend && npm run build",
+        "dist": "npx electron-builder --win",
+        "dist:portable": "npx electron-builder --win portable"
     },
     "devDependencies": {
-        "concurrently": "^8.2.2"
+        "concurrently": "^8.2.2",
+        "electron": "^33.3.1",
+        "electron-builder": "^25.1.8"
+    },
+    "build": {
+        "appId": "com.aquasense360.app",
+        "productName": "AquaSense360",
+        "copyright": "Copyright © 2026 AquaSense360",
+        "directories": {
+            "output": "dist"
+        },
+        "files": [
+            "electron/**/*",
+            "backend/**/*",
+            "frontend/build/**/*",
+            "!**/node_modules/.cache",
+            "!**/.env.example"
+        ],
+        "extraResources": [],
+        "asarUnpack": [
+            "backend/**/*",
+            "frontend/build/**/*"
+        ],
+        "win": {
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "icon": "build/icon.ico"
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": true,
+            "allowToChangeInstallationDirectory": true,
+            "installerHeaderIcon": "build/icon.ico",
+            "uninstallerIcon": "build/icon.ico",
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "AquaSense360",
+            "installerSidebar": null,
+            "license": null
+        }
     }
 }

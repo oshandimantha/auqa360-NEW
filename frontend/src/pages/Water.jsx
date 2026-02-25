@@ -4,7 +4,7 @@ import SensorCard from '../components/SensorCard';
 import ChartPanel from '../components/ChartPanel';
 import socketService from '../services/socket';
 import { useSensorContext } from '../contexts/SensorContext';
-import { getHistoricalData } from '../services/api';
+import { getHistoricalData, getLatestWaterQualityPrediction } from '../services/api';
 
 const Water = () => {
     const { sensorData } = useSensorContext();
@@ -21,10 +21,27 @@ const Water = () => {
     const [chartReady, setChartReady] = useState(false);
     const fetchedRef = useRef(false);
 
+    // AI Water Quality Prediction state
+    const [wqPrediction, setWqPrediction] = useState(null);
+
     useEffect(() => {
         // Prevent double-fetch in strict mode
         if (fetchedRef.current) return;
         fetchedRef.current = true;
+
+        // Fetch latest water quality prediction from API on mount
+        const fetchLatestPrediction = async () => {
+            try {
+                const data = await getLatestWaterQualityPrediction();
+                if (data && data.prediction) {
+                    setWqPrediction(data);
+                    console.log('Loaded WQ prediction from API:', data.prediction);
+                }
+            } catch (error) {
+                console.warn('Could not fetch latest prediction:', error);
+            }
+        };
+        fetchLatestPrediction();
 
         // Fetch historical data in the background — page is already visible
         const fetchHistorical = async () => {
@@ -62,17 +79,101 @@ const Water = () => {
             }));
         });
 
+        // Subscribe to AI water quality predictions (real-time updates)
+        const unsubWQ = socketService.subscribe('water-quality-prediction', (data) => {
+            setWqPrediction(data);
+        });
+
         return () => {
             clearTimeout(timer);
             unsubscribe();
+            unsubWQ();
         };
     }, []);
+
+    // Get prediction color and icon based on label
+    const getPredictionStyle = (prediction) => {
+        switch (prediction) {
+            case 'Good':
+                return { color: '#00e676', bg: 'rgba(0, 230, 118, 0.1)', border: 'rgba(0, 230, 118, 0.3)', icon: '✅', glow: '0 0 20px rgba(0, 230, 118, 0.3)' };
+            case 'Moderate':
+                return { color: '#ffab40', bg: 'rgba(255, 171, 64, 0.1)', border: 'rgba(255, 171, 64, 0.3)', icon: '⚠️', glow: '0 0 20px rgba(255, 171, 64, 0.3)' };
+            case 'Poor':
+                return { color: '#ff5252', bg: 'rgba(255, 82, 82, 0.1)', border: 'rgba(255, 82, 82, 0.3)', icon: '🔴', glow: '0 0 20px rgba(255, 82, 82, 0.3)' };
+            default:
+                return { color: 'var(--color-gray-400)', bg: 'transparent', border: 'var(--color-gray-700)', icon: '🔄', glow: 'none' };
+        }
+    };
 
     return (
         <div className="water-page">
             <div className="page-header">
                 <h2 className="page-title">Water Quality Monitoring</h2>
                 <p className="page-subtitle">Real-time water parameter monitoring and analysis</p>
+            </div>
+
+            {/* AI Water Quality Prediction Card */}
+            <div className="card" style={{
+                marginBottom: 'var(--spacing-lg)',
+                background: wqPrediction
+                    ? getPredictionStyle(wqPrediction.prediction).bg
+                    : 'var(--color-gray-800)',
+                border: `1px solid ${wqPrediction ? getPredictionStyle(wqPrediction.prediction).border : 'var(--color-gray-700)'}`,
+                boxShadow: wqPrediction ? getPredictionStyle(wqPrediction.prediction).glow : 'none',
+                transition: 'all 0.5s ease'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--spacing-md)' }}>
+                    <div>
+                        <h3 style={{ marginBottom: 'var(--spacing-sm)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                            🧠 AI Water Quality Prediction
+                        </h3>
+                        {wqPrediction ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-lg)', flexWrap: 'wrap' }}>
+                                <div>
+                                    <span style={{
+                                        fontSize: '2rem',
+                                        fontWeight: 700,
+                                        color: getPredictionStyle(wqPrediction.prediction).color,
+                                        letterSpacing: '0.5px'
+                                    }}>
+                                        {getPredictionStyle(wqPrediction.prediction).icon} {wqPrediction.prediction}
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '0.9rem', color: 'var(--color-gray-400)' }}>
+                                    <div>Confidence: <strong style={{ color: 'var(--color-white)' }}>{wqPrediction.confidence}%</strong></div>
+                                    <div>Updated: {wqPrediction.timestamp ? new Date(wqPrediction.timestamp).toLocaleTimeString() : '—'}</div>
+                                </div>
+                            </div>
+                        ) : (
+                            <p style={{ color: 'var(--color-gray-400)', fontSize: '0.9rem' }}>
+                                ⏳ Waiting for ML service prediction...
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Confidence bar */}
+                    {wqPrediction && (
+                        <div style={{ minWidth: '150px' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--color-gray-400)', marginBottom: '4px' }}>
+                                Confidence
+                            </div>
+                            <div style={{
+                                height: '8px',
+                                background: 'var(--color-gray-700)',
+                                borderRadius: '4px',
+                                overflow: 'hidden'
+                            }}>
+                                <div style={{
+                                    height: '100%',
+                                    width: `${wqPrediction.confidence}%`,
+                                    background: getPredictionStyle(wqPrediction.prediction).color,
+                                    borderRadius: '4px',
+                                    transition: 'width 0.5s ease'
+                                }} />
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Sensor Overview — instantly visible from shared context */}

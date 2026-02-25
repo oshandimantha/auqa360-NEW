@@ -4,10 +4,11 @@ import SensorCard from '../components/SensorCard';
 import ChartPanel from '../components/ChartPanel';
 import socketService from '../services/socket';
 import { useSensorContext } from '../contexts/SensorContext';
-import { getHistoricalData } from '../services/api';
+import { getHistoricalData, getLatestFishGas } from '../services/api';
 
 const Air = () => {
     const { sensorData } = useSensorContext();
+    const [gasDetection, setGasDetection] = useState(null);
 
     const [chartData, setChartData] = useState({
         labels: [],
@@ -60,6 +61,24 @@ const Air = () => {
         };
     }, []);
 
+    // Separate effect for gas detection — always active
+    useEffect(() => {
+        const fetchLatestGas = async () => {
+            const data = await getLatestFishGas();
+            if (data && data.gasLevel !== null) {
+                setGasDetection(data);
+            }
+        };
+        fetchLatestGas();
+
+        console.log('🔌 Air page: subscribing to fish-gas-detection');
+        const unsubGas = socketService.subscribe('fish-gas-detection', (data) => {
+            console.log('💨 Gas detection received:', data);
+            setGasDetection(data);
+        });
+        return () => unsubGas();
+    }, []);
+
     return (
         <div className="air-page">
             <div className="page-header">
@@ -76,6 +95,62 @@ const Air = () => {
                         value={sensorData.co2}
                     />
                 </div>
+            </section>
+
+            {/* AI Gas Detection Status */}
+            <section className="card" style={{
+                marginTop: 'var(--spacing-xl)',
+                background: gasDetection
+                    ? (gasDetection.gasLevel === 0
+                        ? 'linear-gradient(135deg, rgba(39, 174, 96, 0.1), rgba(46, 204, 113, 0.05))'
+                        : 'linear-gradient(135deg, rgba(231, 76, 60, 0.15), rgba(192, 57, 43, 0.05))')
+                    : 'var(--color-card-bg)',
+                border: gasDetection
+                    ? `1px solid ${gasDetection.gasLevel === 0 ? 'rgba(39, 174, 96, 0.3)' : 'rgba(231, 76, 60, 0.4)'}`
+                    : '1px solid rgba(255,255,255,0.1)'
+            }}>
+                <h3 style={{ marginBottom: 'var(--spacing-lg)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    🧠 AI Gas Detection
+                    <span style={{
+                        fontSize: '0.7rem',
+                        padding: '2px 8px',
+                        borderRadius: '10px',
+                        background: 'rgba(155, 89, 182, 0.2)',
+                        color: '#9b59b6'
+                    }}>ML Model</span>
+                </h3>
+
+                {gasDetection ? (
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{
+                            fontSize: '3rem',
+                            marginBottom: '4px'
+                        }}>
+                            {gasDetection.gasLevel === 0 ? '🟢' : '🔴'}
+                        </div>
+                        <div style={{
+                            fontSize: '1.5rem',
+                            fontWeight: 700,
+                            color: gasDetection.gasLevel === 0 ? '#27ae60' : '#e74c3c'
+                        }}>
+                            {gasDetection.gasLabel}
+                        </div>
+                        <div style={{
+                            fontSize: '0.85rem',
+                            color: 'var(--color-gray-400)',
+                            marginTop: '4px'
+                        }}>
+                            {gasDetection.confidence}% confidence
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-lg)', color: 'var(--color-gray-400)' }}>
+                        ⏳ Waiting for AI gas detection prediction...
+                        <p style={{ fontSize: '0.8rem', marginTop: '8px', color: 'var(--color-gray-500)' }}>
+                            ML model analyzes gas levels every 30s using sensor data
+                        </p>
+                    </div>
+                )}
             </section>
 
             {/* Info Cards */}

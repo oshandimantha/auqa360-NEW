@@ -169,15 +169,19 @@ const Components = () => {
                 />
             </section>
 
-            {/* Feeder Control with Auto/Manual Mode */}
+            {/* Feeder Control with AI/Auto/Manual Mode */}
             <FeederControl
                 feederState={{
                     enabled: actuatorStates.feeder,
                     autoMode: actuatorStates.feederAutoMode,
+                    aiMode: actuatorStates.feederAiMode,
                     scheduleCount: actuatorStates.scheduleCount
                 }}
                 rtcTime={rtcTime}
-                onModeChange={(isAuto) => updateActuatorState('feederAutoMode', isAuto)}
+                onModeChange={(isAuto, isAi) => {
+                    updateActuatorState('feederAutoMode', isAuto);
+                    updateActuatorState('feederAiMode', isAi || false);
+                }}
             />
 
             {/* Status Components */}

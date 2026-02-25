@@ -42,12 +42,6 @@ function App() {
               </Routes>
             </Suspense>
           </main>
-          <footer className="footer">
-            <div className="footer-content">
-              <p>© 2025 AquaSense360 | IoT-Based Smart Fish Health Monitoring System</p>
-              <p className="footer-meta">ESP32 + Raspberry Pi 3 + YOLO</p>
-            </div>
-          </footer>
         </div>
       </SensorProvider>
     </Router>

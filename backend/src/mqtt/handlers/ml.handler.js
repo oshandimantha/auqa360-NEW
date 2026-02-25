@@ -1,0 +1,274 @@
+const WaterQualityPrediction = require('../../models/WaterQualityPrediction');
+const FishDetection = require('../../models/FishDetection');
+const { TOPICS } = require('../mqtt.topics');
+const systemStatus = require('../../utils/systemStatus');
+const { updateLatestWaterQuality, updateLatestFishDisease, updateLatestFishFeeding, updateLatestFishGas } = require('../../routes/ml.routes');
+
+// ─── Throttle timer for fish disease DB saves ───
+let lastDbSaveTime = 0;
+const DB_SAVE_INTERVAL = 5000;    // Save to DB at most once every 5s
+
+/**
+ * Handle ML Service MQTT messages (from Python ML service)
+ */
+const mlHandler = {
+    async handle(topic, payload, io) {
+        try {
+            if (topic === TOPICS.ML.WATER_QUALITY) {
+                await this.handleWaterQuality(payload, io);
+            } else if (topic === TOPICS.ML.FISH_DISEASE) {
+                await this.handleFishDisease(payload, io);
+            } else if (topic === TOPICS.ML.FISH_FEEDING) {
+                await this.handleFishFeeding(payload, io);
+            } else if (topic === TOPICS.ML.FISH_GAS) {
+                await this.handleFishGas(payload, io);
+            } else if (topic === TOPICS.ML.STATUS) {
+                await this.handleStatus(payload, io);
+            }
+        } catch (error) {
+            console.error('ML handler error:', error);
+        }
+    },
+
+    /**
+     * Handle water quality prediction from ML service
+     */
+    async handleWaterQuality(data, io) {
+        console.log('🔬 Water quality prediction:', data.prediction, `(${data.confidence}%)`);
+
+        // ML service is running on the laptop — mark it as connected
+        systemStatus.updateRaspberryPi({});
+
+        // Update in-memory store (instant, no DB dependency)
+        updateLatestWaterQuality({
+            prediction: data.prediction,
+            classId: data.classId,
+            confidence: data.confidence,
+            sensorValues: data.sensorValues,
+            timestamp: data.timestamp || new Date()
+        });
+
+        // Save prediction to database
+        try {
+            const prediction = new WaterQualityPrediction({
+                prediction: data.prediction,
+                classId: data.classId,
+                confidence: data.confidence,
+                sensorSnapshot: {
+                    temperature: data.sensorValues?.temperature,
+                    ph: data.sensorValues?.ph,
+                    turbidity: data.sensorValues?.turbidity,
+                    tds: data.sensorValues?.tds,
+                    dissolvedOxygen: data.sensorValues?.do,
+                    ammonia: data.sensorValues?.ammonia,
+                },
+                timestamp: data.timestamp || new Date()
+            });
+
+            await prediction.save();
+        } catch (dbError) {
+            console.warn('Could not save water quality prediction:', dbError.message);
+        }
+
+        // Emit to frontend via Socket.IO
+        if (io) {
+            io.emit('water-quality-prediction', {
+                prediction: data.prediction,
+                classId: data.classId,
+                confidence: data.confidence,
+                sensorValues: data.sensorValues,
+                timestamp: data.timestamp || new Date()
+            });
+
+            // Send alert for poor water quality
+            if (data.prediction === 'Poor') {
+                io.emit('alert', {
+                    type: 'danger',
+                    source: 'ml-water-quality',
+                    message: `AI Water Quality Alert: Water quality is POOR (${data.confidence}% confidence)`,
+                    severity: 'critical',
+                    timestamp: new Date()
+                });
+            } else if (data.prediction === 'Moderate') {
+                io.emit('alert', {
+                    type: 'warning',
+                    source: 'ml-water-quality',
+                    message: `Water quality is Moderate (${data.confidence}% confidence)`,
+                    severity: 'medium',
+                    timestamp: new Date()
+                });
+            }
+        }
+    },
+
+    /**
+     * Handle fish disease detection from ML service
+     */
+    async handleFishDisease(data, io) {
+        const status = data.diseaseDetected ? '🔴 DISEASE' : '🟢 Healthy';
+        console.log(`🐟 Fish disease: ${status} (${data.detectionCount} detections)`);
+
+        // Update system status — YOLO is running, laptop is connected
+        systemStatus.updateYOLO({ modelLoaded: true });
+        systemStatus.updateRaspberryPi({});
+
+        // Update in-memory store (instant, no DB dependency)
+        updateLatestFishDisease({
+            diseaseDetected: data.diseaseDetected,
+            detections: data.detections || [],
+            detectionCount: data.detectionCount || 0,
+            maxConfidence: data.maxConfidence || 0,
+            status: data.status || 'healthy',
+            cameraSource: data.cameraSource,
+            timestamp: data.timestamp || new Date()
+        });
+
+        // Throttled DB save — only write once every 5 seconds
+        const now = Date.now();
+        if (now - lastDbSaveTime >= DB_SAVE_INTERVAL) {
+            lastDbSaveTime = now;
+            try {
+                const detection = new FishDetection({
+                    source: 'ml-service',
+                    fishCount: data.detectionCount || 0,
+                    fps: 2,
+                    detections: (data.detections || []).map(d => ({
+                        class: d.class,
+                        confidence: d.confidence / 100,
+                        bbox: d.bbox
+                    })),
+                    abnormalBehavior: data.diseaseDetected ? 'Disease detected' : null,
+                    diseaseRisk: data.diseaseDetected ? 'high' : 'low',
+                    status: data.diseaseDetected ? 'critical' : 'normal',
+                    confidence: (data.maxConfidence || 0) / 100,
+                    timestamp: data.timestamp || new Date()
+                });
+
+                await detection.save();
+            } catch (dbError) {
+                console.warn('Could not save fish disease detection:', dbError.message);
+            }
+        }
+
+        // Emit to frontend via Socket.IO (metadata only — video via MJPEG stream)
+        if (io) {
+            io.emit('fish-disease-detection', {
+                diseaseDetected: data.diseaseDetected,
+                detections: data.detections || [],
+                detectionCount: data.detectionCount || 0,
+                maxConfidence: data.maxConfidence || 0,
+                status: data.status || 'healthy',
+                cameraSource: data.cameraSource,
+                timestamp: data.timestamp || new Date()
+            });
+
+            // Alert for disease detection
+            if (data.diseaseDetected) {
+                const diseaseClasses = (data.detections || []).map(d => d.class).join(', ');
+                io.emit('alert', {
+                    type: 'danger',
+                    source: 'ml-fish-disease',
+                    message: `Fish Disease Detected: ${diseaseClasses} (${data.maxConfidence}% confidence)`,
+                    severity: 'critical',
+                    timestamp: new Date()
+                });
+            }
+        }
+    },
+
+    /**
+     * Handle fish feeding prediction from ML service
+     */
+    async handleFishFeeding(data, io) {
+        const levelLabel = data.feedingLabel || 'Unknown';
+        console.log(`🍽️ Fish feeding prediction: ${levelLabel} (CO2=${data.co2Value}ppm, ${data.confidence}%)`);
+
+        const feedingData = {
+            feedingLevel: data.feedingLevel,
+            feedingLabel: data.feedingLabel,
+            confidence: data.confidence,
+            sensorValues: data.sensorValues || {},
+            aiModeActive: data.aiModeActive || false,
+            timestamp: data.timestamp || new Date()
+        };
+
+        // Cache for instant load on new connections
+        updateLatestFishFeeding(feedingData);
+
+        // Emit to frontend via Socket.IO
+        if (io) {
+            io.emit('fish-feeding-prediction', feedingData);
+        }
+    },
+    /**
+     * Handle fish gas detection from ML service
+     */
+    async handleFishGas(data, io) {
+        const label = data.gasLabel || 'Unknown';
+        console.log(`💨 Fish gas detection: ${label} (${data.confidence}%)`);
+
+        const gasData = {
+            gasLevel: data.gasLevel,
+            gasLabel: data.gasLabel,
+            confidence: data.confidence,
+            sensorValues: data.sensorValues || {},
+            timestamp: data.timestamp || new Date()
+        };
+
+        // Cache for instant load on new connections
+        updateLatestFishGas(gasData);
+
+        if (io) {
+            io.emit('fish-gas-detection', gasData);
+
+            // Emit alert if gas danger detected
+            if (data.gasLevel === 1) {
+                io.emit('alert', {
+                    type: 'critical',
+                    source: 'gas-detection',
+                    message: `⚠️ Dangerous gas levels detected (${data.confidence}% confidence)`,
+                    severity: 'critical',
+                    timestamp: new Date()
+                });
+            }
+        }
+    },
+
+    /**
+     * Handle ML service online/offline status
+     */
+    async handleStatus(data, io) {
+        console.log('🧠 ML Service status:', data.status);
+
+        const isOnline = data.status === 'online';
+
+        // Update system status for YOLO and laptop
+        if (isOnline) {
+            systemStatus.updateRaspberryPi({});
+            if (data.models?.fishDisease) {
+                systemStatus.updateYOLO({ modelLoaded: true });
+            }
+        }
+
+        if (io) {
+            // Emit laptop/device status (frontend listens for device === 'laptop')
+            io.emit('device-status', {
+                device: 'laptop',
+                online: isOnline,
+                status: data.status,
+                models: data.models,
+                timestamp: data.timestamp || new Date()
+            });
+
+            // Emit YOLO model status (frontend listens for 'model-status')
+            io.emit('model-status', {
+                running: isOnline && data.models?.fishDisease,
+                modelLoaded: data.models?.fishDisease || false,
+                waterQualityLoaded: data.models?.waterQuality || false,
+                timestamp: data.timestamp || new Date()
+            });
+        }
+    }
+};
+
+module.exports = mlHandler;

@@ -182,4 +182,50 @@ export const syncFeedingSchedules = async () => {
     }
 };
 
+// ==================== ML PREDICTIONS ====================
+
+// Get latest water quality prediction
+export const getLatestWaterQualityPrediction = async () => {
+    try {
+        const response = await api.get('/ml/water-quality/latest');
+        return response.data;
+    } catch (error) {
+        console.warn('Failed to fetch water quality prediction:', error.message);
+        return null;
+    }
+};
+
+// Get latest fish disease detection
+export const getLatestFishDisease = async () => {
+    try {
+        const response = await api.get('/ml/fish-disease/latest');
+        return response.data;
+    } catch (error) {
+        console.warn('Failed to fetch fish disease data:', error.message);
+        return null;
+    }
+};
+
+// Get latest fish feeding prediction
+export const getLatestFishFeeding = async () => {
+    try {
+        const response = await api.get('/ml/fish-feeding/latest');
+        return response.data;
+    } catch (error) {
+        console.warn('Failed to fetch feeding data:', error.message);
+        return null;
+    }
+};
+
+// Get latest fish gas detection
+export const getLatestFishGas = async () => {
+    try {
+        const response = await api.get('/ml/fish-gas/latest');
+        return response.data;
+    } catch (error) {
+        console.warn('Failed to fetch gas detection data:', error.message);
+        return null;
+    }
+};
+
 export default api;

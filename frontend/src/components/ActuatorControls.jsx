@@ -35,8 +35,11 @@ const ActuatorControls = ({ actuatorStates = {}, onToggle, pumpSafety = {} }) =>
 
         // Check safety restrictions for oxygen pump in manual mode
         if (actuatorName === 'oxygenPump' && newState === true) {
-            if (pumpSafety.blocked || (pumpSafety.waterPercent < pumpSafety.minLevel)) {
-                console.warn('Cannot turn on pump - water level too low');
+            const waterPct = pumpSafety.waterPercent;
+            const minLevel = pumpSafety.minLevel || 30;
+            // Block only if we have explicit data showing water is too low
+            if (pumpSafety.blocked === true || (waterPct !== undefined && waterPct !== null && waterPct < minLevel)) {
+                console.warn(`Cannot turn on pump - water level too low (${waterPct}% < ${minLevel}%)`);
                 return;
             }
         }
@@ -97,9 +100,11 @@ const ActuatorControls = ({ actuatorStates = {}, onToggle, pumpSafety = {} }) =>
             if (pumpAutoMode) return false; // Not "blocked" — just auto-controlled
 
             const isOn = localStates[key] || false;
+            const waterPct = pumpSafety.waterPercent;
+            const minLevel = pumpSafety.minLevel || 30;
             // Block turning ON if water too low (turning OFF is always allowed)
-            if (!isOn && pumpSafety.blocked) return true;
-            if (!isOn && pumpSafety.waterPercent < pumpSafety.minLevel) return true;
+            if (!isOn && pumpSafety.blocked === true) return true;
+            if (!isOn && waterPct !== undefined && waterPct !== null && waterPct < minLevel) return true;
         }
         return false;
     };

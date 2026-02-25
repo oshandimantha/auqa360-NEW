@@ -101,10 +101,14 @@ class SystemStatus {
     // Check if device is still "alive" based on timeout
     isDeviceAlive(deviceName) {
         const device = this.devices[deviceName];
-        if (!device || !device.lastSeen) return false;
+        if (!device) return false;
+
+        // YOLO uses lastDetection instead of lastSeen
+        const lastActive = device.lastSeen || device.lastDetection;
+        if (!lastActive) return false;
 
         const timeout = this.timeouts[deviceName] || 60000;
-        const timeSinceLastSeen = Date.now() - new Date(device.lastSeen).getTime();
+        const timeSinceLastSeen = Date.now() - new Date(lastActive).getTime();
         return timeSinceLastSeen < timeout;
     }
 

@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const fishDetectionSchema = new mongoose.Schema({
     source: {
         type: String,
-        enum: ['raspberry_pi', 'pi'],
+        enum: ['raspberry_pi', 'pi', 'laptop', 'ml-service'],
         default: 'raspberry_pi'
     },
     fishCount: {
