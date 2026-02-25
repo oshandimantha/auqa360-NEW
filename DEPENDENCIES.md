@@ -37,12 +37,17 @@ Libraries used to build and package the desktop installer.
 | `electron` | ^33.3.1 | Desktop application framework |
 | `electron-builder`| ^25.1.8 | Packaging and installer builder |
 | `concurrently` | ^8.2.2 | Tool to run backend/frontend simultaneously |
+| `pyinstaller` | ^6.19.0 | Python executable builder |
 
 ---
 
 ## Installation Summary
 To install all dependencies across the project, run:
 ```bash
+# ML Service
+pip install pyinstaller
+cd ml-service && pyinstaller --noconsole --name aquasense-ml --add-data "models;models" main.py
+
 # Root & Electron
 npm install
 

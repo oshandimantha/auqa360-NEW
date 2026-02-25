@@ -1,6 +1,6 @@
 const { app, BrowserWindow, dialog, Menu, Tray } = require('electron');
 const path = require('path');
-const { fork } = require('child_process');
+const { fork, spawn } = require('child_process');
 const http = require('http');
 
 // ─── Configuration ───
@@ -10,6 +10,7 @@ const isDev = !app.isPackaged;
 
 let mainWindow = null;
 let backendProcess = null;
+let mlProcess = null;
 let tray = null;
 
 // ─── Resolve paths (works in dev and packaged) ───
@@ -40,6 +41,20 @@ function getIconPath() {
         return path.join(__dirname, '..', 'build', 'icon.ico');
     }
     return path.join(process.resourcesPath, 'icon.ico');
+}
+
+function getMLPath() {
+    if (isDev) {
+        return path.join(__dirname, '..', 'ml-service', 'dist', 'aquasense-ml', 'aquasense-ml.exe');
+    }
+    return path.join(process.resourcesPath, 'extraResources', 'ml', 'aquasense-ml.exe');
+}
+
+function getMLCwd() {
+    if (isDev) {
+        return path.join(__dirname, '..', 'ml-service', 'dist', 'aquasense-ml');
+    }
+    return path.join(process.resourcesPath, 'extraResources', 'ml');
 }
 
 // ─── Start Backend Server ───
@@ -118,6 +133,48 @@ function stopBackend() {
         console.log('[Electron] Stopping backend...');
         backendProcess.kill('SIGINT');
         backendProcess = null;
+    }
+}
+
+// ─── Start ML Service ───
+function startML() {
+    const mlPath = getMLPath();
+    const mlCwd = getMLCwd();
+
+    console.log(`[Electron] Starting ML Service: ${mlPath}`);
+
+    mlProcess = spawn(mlPath, [], {
+        cwd: mlCwd,
+        env: {
+            ...process.env,
+            ELECTRON: 'true',
+        }
+    });
+
+    mlProcess.stdout.on('data', (data) => {
+        console.log(`[ML] ${data.toString().trim()}`);
+    });
+
+    mlProcess.stderr.on('data', (data) => {
+        console.error(`[ML Error] ${data.toString().trim()}`);
+    });
+
+    mlProcess.on('error', (err) => {
+        console.error('[Electron] Failed to start ML service:', err);
+    });
+
+    mlProcess.on('exit', (code) => {
+        console.log(`[Electron] ML Service exited with code ${code}`);
+        mlProcess = null;
+    });
+}
+
+// ─── Stop ML Service ───
+function stopML() {
+    if (mlProcess) {
+        console.log('[Electron] Stopping ML Service...');
+        mlProcess.kill('SIGINT');
+        mlProcess = null;
     }
 }
 
@@ -281,6 +338,7 @@ app.whenReady().then(async () => {
     const splash = createSplash();
 
     try {
+        startML();  // Start ML in parallel
         await startBackend();
     } catch (err) {
         console.error('[Electron] Backend start error:', err);
@@ -306,11 +364,13 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
     stopBackend();
+    stopML();
     app.quit();
 });
 
 app.on('before-quit', () => {
     stopBackend();
+    stopML();
 });
 
 app.on('activate', () => {

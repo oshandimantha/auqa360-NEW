@@ -28,13 +28,22 @@
             "output": "dist"
         },
         "files": [
-            "electron/**/*",
+            "package.json",
+            "electron/main.js",
+            "electron/preload.js",
             "backend/**/*",
             "frontend/build/**/*",
-            "!**/node_modules/.cache",
-            "!**/.env.example"
+            "!backend/node_modules/.cache"
         ],
-        "extraResources": [],
+        "extraResources": [
+            {
+                "from": "ml-service/dist/aquasense-ml",
+                "to": "extraResources/ml",
+                "filter": [
+                    "**/*"
+                ]
+            }
+        ],
         "asarUnpack": [
             "backend/**/*",
             "frontend/build/**/*"
