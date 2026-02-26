@@ -39,46 +39,20 @@ const mlHandler = {
         // ML service is running on the laptop — mark it as connected
         systemStatus.updateRaspberryPi({});
 
-        // Update in-memory store (instant, no DB dependency)
-        updateLatestWaterQuality({
+        const predictionData = {
             prediction: data.prediction,
             classId: data.classId,
             confidence: data.confidence,
             sensorValues: data.sensorValues,
             timestamp: data.timestamp || new Date()
-        });
+        };
 
-        // Save prediction to database
-        try {
-            const prediction = new WaterQualityPrediction({
-                prediction: data.prediction,
-                classId: data.classId,
-                confidence: data.confidence,
-                sensorSnapshot: {
-                    temperature: data.sensorValues?.temperature,
-                    ph: data.sensorValues?.ph,
-                    turbidity: data.sensorValues?.turbidity,
-                    tds: data.sensorValues?.tds,
-                    dissolvedOxygen: data.sensorValues?.do,
-                    ammonia: data.sensorValues?.ammonia,
-                },
-                timestamp: data.timestamp || new Date()
-            });
+        // Update in-memory store (instant, no DB dependency)
+        updateLatestWaterQuality(predictionData);
 
-            await prediction.save();
-        } catch (dbError) {
-            console.warn('Could not save water quality prediction:', dbError.message);
-        }
-
-        // Emit to frontend via Socket.IO
+        // Emit to frontend via Socket.IO FIRST (instant — no DB wait)
         if (io) {
-            io.emit('water-quality-prediction', {
-                prediction: data.prediction,
-                classId: data.classId,
-                confidence: data.confidence,
-                sensorValues: data.sensorValues,
-                timestamp: data.timestamp || new Date()
-            });
+            io.emit('water-quality-prediction', predictionData);
 
             // Send alert for poor water quality
             if (data.prediction === 'Poor') {
@@ -99,6 +73,22 @@ const mlHandler = {
                 });
             }
         }
+
+        // Save prediction to database in background (non-blocking)
+        WaterQualityPrediction.create({
+            prediction: data.prediction,
+            classId: data.classId,
+            confidence: data.confidence,
+            sensorSnapshot: {
+                temperature: data.sensorValues?.temperature,
+                ph: data.sensorValues?.ph,
+                turbidity: data.sensorValues?.turbidity,
+                tds: data.sensorValues?.tds,
+                dissolvedOxygen: data.sensorValues?.do,
+                ammonia: data.sensorValues?.ammonia,
+            },
+            timestamp: data.timestamp || new Date()
+        }).catch(err => console.warn('Could not save water quality prediction:', err.message));
     },
 
     /**

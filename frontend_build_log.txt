@@ -1,0 +1,53 @@
+
+> frontend@0.1.0 build
+> react-scripts build
+
+(node:12040) [DEP0176] DeprecationWarning: fs.F_OK is deprecated, use fs.constants.F_OK instead
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Creating an optimized production build...
+Compiled with warnings.
+
+[eslint] 
+src\components\FeederControl.jsx
+  Line 8:5:  'getLatestFishFeeding' is defined but never used  no-unused-vars
+
+src\pages\Components.jsx
+  Line 33:12:   'showRtcControl' is assigned a value but never used           no-unused-vars
+  Line 33:28:   'setShowRtcControl' is assigned a value but never used        no-unused-vars
+  Line 34:12:   'rtcMessage' is assigned a value but never used               no-unused-vars
+  Line 86:11:   'handleSetRtcTime' is assigned a value but never used         no-unused-vars
+  Line 101:11:  'handleSyncToBrowserTime' is assigned a value but never used  no-unused-vars
+  Line 115:11:  'handleManualTimeChange' is assigned a value but never used   no-unused-vars
+  Line 123:11:  'inputStyle' is assigned a value but never used               no-unused-vars
+
+src\pages\Fish.jsx
+  Line 13:12:  'fps' is assigned a value but never used  no-unused-vars
+
+Search for the keywords to learn more about each warning.
+To ignore, add // eslint-disable-next-line to the line before.
+
+File sizes after gzip:
+
+  108.79 kB (+22 B)  build\static\js\main.1e0dcca7.js
+  68.86 kB           build\static\js\58.57dee0ff.chunk.js
+  8.34 kB            build\static\js\356.d392bdd9.chunk.js
+  3.8 kB (+6 B)      build\static\js\97.e2798232.chunk.js
+  3.8 kB             build\static\js\724.403f20f6.chunk.js
+  3.36 kB            build\static\js\816.321427f7.chunk.js
+  3.28 kB            build\static\css\main.26b48369.css
+  3.27 kB            build\static\js\997.3ee77215.chunk.js
+  681 B              build\static\js\264.270f20bf.chunk.js
+
+The project was built assuming it is hosted at /.
+You can control this with the homepage field in your package.json.
+
+The build folder is ready to be deployed.
+You may serve it with a static server:
+
+  npm install -g serve
+  serve -s build
+
+Find out more about deployment here:
+
+  https://cra.link/deployment
+

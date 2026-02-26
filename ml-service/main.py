@@ -180,18 +180,27 @@ def water_quality_loop():
 
 def fish_disease_loop():
     """
-    YOLO inference thread — grabs latest frame from ThreadedCamera,
-    runs detection, pushes annotated frame to MJPEG stream,
-    and publishes lightweight JSON metadata via MQTT.
+    YOLO inference thread — runs detection on latest camera frame as fast as
+    possible, stores overlay for the compositor, and publishes metadata via MQTT.
+    MQTT publishing is throttled to ~3/sec to avoid flooding the backend.
+    The stream compositor (inside fd_detector) handles smooth video independently.
     """
     global running, fish_disease_enabled
-    print("🐟 Fish disease detection loop started (multithreaded)")
+    print("🐟 Fish disease detection loop started (decoupled pipeline)")
 
-    # Open threaded camera
+    # Open threaded camera + start stream compositor
     if not fd_detector.open_camera():
         print("❌ Cannot open camera — fish disease detection disabled")
         print("   Try switching camera with command: camera <index or URL>")
         return
+
+    # Small warm-up to let camera stabilize
+    time.sleep(1)
+
+    inference_count = 0
+    inference_start = time.time()
+    last_mqtt_publish = 0
+    MQTT_MIN_INTERVAL = 0.33  # Max ~3 MQTT messages/sec (detection overlay still runs at full speed)
 
     while running:
         if not fish_disease_enabled:
@@ -199,18 +208,37 @@ def fish_disease_loop():
             continue
 
         try:
-            # detect() grabs latest frame from ThreadedCamera (non-blocking),
-            # runs YOLO, pushes annotated frame to MJPEG stream,
-            # and returns metadata-only JSON (no base64)
+            t0 = time.time()
+
+            # detect() grabs latest frame, runs YOLO, stores overlay for smooth video,
+            # and returns metadata-only JSON
             result = fd_detector.detect()
-            if result and mqtt_client:
+
+            # Throttle MQTT publishing to avoid flooding the backend event loop
+            # (the detection overlay for video stream still updates at full YOLO speed)
+            now = time.time()
+            if result and mqtt_client and (now - last_mqtt_publish) >= MQTT_MIN_INTERVAL:
+                last_mqtt_publish = now
                 mqtt_client.publish(
                     config.TOPIC_FISH_DISEASE,
                     json.dumps(result)
                 )
 
-            # ~10 FPS inference rate
-            time.sleep(0.1)
+            inference_time = time.time() - t0
+
+            # Track inference FPS
+            inference_count += 1
+            elapsed = time.time() - inference_start
+            if elapsed >= 10.0:
+                yolo_fps = inference_count / elapsed
+                print(f"🐟 YOLO inference: {yolo_fps:.1f} FPS | Stream: {fd_detector.compositor.actual_fps:.1f} FPS" if fd_detector.compositor else f"🐟 YOLO: {yolo_fps:.1f} FPS")
+                inference_count = 0
+                inference_start = time.time()
+
+            # Minimum 50ms between inferences to avoid CPU saturation
+            remaining = 0.05 - inference_time
+            if remaining > 0:
+                time.sleep(remaining)
 
         except Exception as e:
             print(f"⚠️ Fish disease loop error: {e}")

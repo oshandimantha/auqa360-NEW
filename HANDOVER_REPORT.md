@@ -132,4 +132,5 @@ The output `.exe` will be located in the `/dist` folder.
 ## 6. Critical Notes for Successors
 - **MongoDB:** Using Atlas (Cloud). Ensure IP access is allowed in the Atlas dashboard.
 - **MQTT Broker:** Currently using HiveMQ Public Broker. For commercial use, switch to a private broker (AWS IoT or private HiveMQ instance).
-- **Video Stream:** The app expects a stream from a Raspberry Pi or Local Camera at the URLs defined in `.env`.
+- **Video Stream:** The app expects a stream from a Raspberry Pi or Local Camera. You can also use a **mobile phone** as a camera using apps like DroidCam (see below).
+- **Mobile Camera Setup:** Install DroidCam on your phone, then in the ML service command interface, type: `camera http://<your-phone-ip>:4747/video`.

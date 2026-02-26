@@ -6,7 +6,7 @@ import socketService from '../services/socket';
 import { formatRelativeTime } from '../utils/format';
 
 // MJPEG stream URL from ML service
-const STREAM_URL = 'http://localhost:8765/video_feed';
+const STREAM_URL = process.env.REACT_APP_ML_STREAM_URL || 'http://localhost:8765/video_feed';
 
 const Fish = () => {
     const [fishCount, setFishCount] = useState(null);

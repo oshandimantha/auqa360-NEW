@@ -47,8 +47,10 @@ class MQTTClient {
 
         // Handle incoming messages
         this.client.on('message', (topic, message) => {
-            console.log(`📨 MQTT Message received on topic: ${topic}`);
-            console.log(`   Raw message: ${message.toString().substring(0, 200)}`);
+            // Skip verbose logging for high-frequency topics (fish-disease ~10/sec)
+            if (topic !== 'aquasense/ml/fish-disease') {
+                console.log(`📨 MQTT [${topic}]: ${message.toString().substring(0, 150)}`);
+            }
 
             // Update MQTT last message time
             systemStatus.mqttMessageReceived();

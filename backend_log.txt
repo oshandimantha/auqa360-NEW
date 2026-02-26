@@ -1,0 +1,45 @@
+✅ Socket.io initialized
+MongoDB connection error: querySrv ECONNREFUSED _mongodb._tcp.aquasense360.oxf9pb4.mongodb.net
+⚠️  MongoDB connection failed: querySrv ECONNREFUSED _mongodb._tcp.aquasense360.oxf9pb4.mongodb.net
+   Server will run without database.
+   To fix: Install MongoDB locally or use MongoDB Atlas (update MONGO_URI in .env)
+
+📡 Connecting to MQTT broker: mqtt://broker.hivemq.com:1883
+✅ MQTT client initialized
+
+🚀 AquaSense360 Backend running on port 5000
+   Environment: development
+   MongoDB: Not connected
+   MQTT: Connected
+   API: http://localhost:5000/api
+   Health: http://localhost:5000/api/health
+   Socket.io: ws://localhost:5000
+
+MQTT connection error: Error: connack timeout
+    at Timeout._onTimeout (c:\Users\Oshan\Pictures\auqa360\backend\node_modules\mqtt\build\lib\client.js:363:32)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+MQTT connection closed
+MQTT reconnecting...
+✅ MQTT connected to broker
+   📥 Subscribed: aquasense/esp32/sensors
+📨 MQTT [aquasense/esp32/status]: {"device":"esp32_fishtank_01","online":true,"ip":"192.168.43.191","rssi":-89}
+🔌 ESP32 status: {
+  device: 'esp32_fishtank_01',
+  online: true,
+  ip: '192.168.43.191',
+  rssi: -89
+}
+   📥 Subscribed: aquasense/esp32/status
+   📥 Subscribed: aquasense/esp32/actuators/status
+   📥 Subscribed: aquasense/esp32/pir
+   📥 Subscribed: aquasense/pi/detection
+   📥 Subscribed: aquasense/pi/status
+   📥 Subscribed: aquasense/pi/stream/status
+   📥 Subscribed: aquasense/laptop/detection
+   📥 Subscribed: aquasense/laptop/status
+   📥 Subscribed: aquasense/ml/water-quality
+   📥 Subscribed: aquasense/ml/fish-disease
+   📥 Subscribed: aquasense/ml/fish-feeding
+   📥 Subscribed: aquasense/ml/fish-gas
+   📥 Subscribed: aquasense/ml/status
