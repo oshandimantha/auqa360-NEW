@@ -15,56 +15,9 @@ class WaterQualityPredictor:
         self.loaded = False
 
     def load(self):
-        """Load the pickle model and scaler."""
-        try:
-            self.model = self._load_model_file(config.WQ_MODEL_PATH)
-            print(f"✅ Water quality model loaded from {config.WQ_MODEL_PATH}")
-
-            self.scaler = self._load_model_file(config.WQ_SCALER_PATH)
-            print(f"✅ Scaler loaded from {config.WQ_SCALER_PATH}")
-
-            self.loaded = True
-        except FileNotFoundError as e:
-            print(f"❌ Model file not found: {e}")
-            print("   Please place water_quality_model.pkl and scaler.pkl in ml-service/models/")
-            self.loaded = False
-        except Exception as e:
-            print(f"❌ Error loading water quality model: {e}")
-            self.loaded = False
-
-    def _load_model_file(self, path):
-        """Try loading a model file with joblib first (most common for sklearn), then pickle."""
-        import warnings
-        warnings.filterwarnings("ignore")  # Suppress all warnings during loading
-
-        # Try joblib first (most sklearn models are saved this way)
-        try:
-            import joblib
-            model = joblib.load(path)
-            print(f"   (loaded via joblib)")
-            return model
-        except Exception as e1:
-            print(f"   joblib failed: {e1}")
-
-        # Try pickle with highest protocol
-        try:
-            with open(path, "rb") as f:
-                model = pickle.load(f)
-            print(f"   (loaded via pickle)")
-            return model
-        except Exception as e2:
-            print(f"   pickle failed: {e2}")
-
-        # Try pickle with latin1 encoding (cross-platform compatibility)
-        try:
-            with open(path, "rb") as f:
-                model = pickle.load(f, encoding='latin1')
-            print(f"   (loaded via pickle latin1)")
-            return model
-        except Exception as e3:
-            print(f"   pickle latin1 failed: {e3}")
-
-        raise Exception(f"Could not load {path} with any method")
+        """Bypass ML model loading and use rule-based deterministic logic instead."""
+        print("✅ Water quality system using deterministic sensor rules (ML models bypassed)")
+        self.loaded = True
 
     def fetch_sensor_data(self):
         """Fetch latest sensor readings from the backend API."""
@@ -90,7 +43,7 @@ class WaterQualityPredictor:
 
     def predict(self, sensor_data=None):
         """
-        Run water quality prediction.
+        Run rule-based water quality prediction overriding the ML model.
         If sensor_data is None, fetches from the backend API.
 
         Returns dict with prediction info or None on failure.
@@ -109,56 +62,98 @@ class WaterQualityPredictor:
         temp = sensor_data.get("temperature")
         ph = sensor_data.get("ph")
         turbidity = sensor_data.get("turbidity")
+        tds = sensor_data.get("tds", 0)
 
         # Check we have the required values
         if temp is None or ph is None or turbidity is None:
             print("⚠️ Missing sensor values (temp/ph/turbidity), skipping prediction")
             return None
 
-        # Build feature array in the training order:
-        # [Temp, pH, DOmg/L, Turbidity_cm, Ammonia_mg_L_1_]
-        features = np.array([[
-            float(temp),
-            float(ph),
-            config.FIXED_DO,
-            float(turbidity),
-            config.FIXED_AMMONIA
-        ]])
-
         try:
-            # Scale features
-            features_scaled = self.scaler.transform(features)
+            temp = float(temp)
+            ph = float(ph)
+            turbidity = float(turbidity)
+            tds = float(tds)
 
-            # Predict
-            prediction = self.model.predict(features_scaled)[0]
-            class_id = int(prediction)
+            out_count = 0
+            
+            # Temperature: 24 - 30 °C
+            if temp < 24.0 or temp > 30.0:
+                out_count += 1
+                
+            # pH: 6.5 - 8.5
+            if ph < 6.5 or ph > 8.5:
+                out_count += 1
+                
+            # Turbidity: < 50 NTU
+            if turbidity > 50.0:
+                out_count += 1
+                
+            # TDS: 100 - 500 ppm
+            if tds < 100.0 or tds > 500.0:
+                out_count += 1
 
-            # Try to get prediction probabilities if the model supports it
-            confidence = 0.0
-            try:
-                probabilities = self.model.predict_proba(features_scaled)[0]
-                confidence = float(max(probabilities)) * 100
-            except AttributeError:
-                # Model doesn't support predict_proba
-                confidence = 100.0
+            # Define optimal ranges and maximum expected deviations
+            bounds = {
+                'temp': {'min': 24.0, 'max': 30.0, 'spread': 10.0},
+                'ph': {'min': 6.5, 'max': 8.5, 'spread': 3.0},
+                'turbidity': {'min': 0.0, 'max': 50.0, 'spread': 100.0},
+                'tds': {'min': 100.0, 'max': 500.0, 'spread': 500.0}
+            }
 
-            label = config.WQ_LABELS.get(class_id, "Unknown")
+            def calc_health(val, b):
+                # If within optimal range, health is 100%
+                if b['min'] <= val <= b['max']:
+                    return 100.0
+                
+                # Calculate how far out of bounds the value is
+                deviation = 0.0
+                if val < b['min']:
+                    deviation = b['min'] - val
+                elif val > b['max']:
+                    deviation = val - b['max']
+                
+                # Health drops from 100% down to 0% as deviation reaches 'spread'
+                penalty_ratio = min(deviation / b['spread'], 1.0)
+                health = 100.0 * (1.0 - penalty_ratio)
+                return max(health, 0.0)
+
+            # Calculate individual health scores (0-100)
+            h_temp = calc_health(temp, bounds['temp'])
+            h_ph = calc_health(ph, bounds['ph'])
+            h_turb = calc_health(turbidity, bounds['turbidity'])
+            h_tds = calc_health(tds, bounds['tds'])
+
+            # Final confidence is the mathematical average of all sensor health scores
+            avg_health = (h_temp + h_ph + h_turb + h_tds) / 4.0
+            confidence = round(avg_health, 2)
+
+            # Classify label based purely on the aggregated health confidence score
+            if confidence >= 80.0:
+                label = "Good"
+                class_id = 2
+            elif confidence >= 50.0:
+                label = "Moderate"
+                class_id = 1
+            else:
+                label = "Poor"
+                class_id = 0
 
             result = {
                 "prediction": label,
                 "classId": class_id,
-                "confidence": round(confidence, 2),
+                "confidence": confidence,
                 "sensorValues": {
-                    "temperature": float(temp),
-                    "ph": float(ph),
-                    "turbidity": float(turbidity),
-                    "tds": float(sensor_data.get("tds", 0) or 0),
+                    "temperature": temp,
+                    "ph": ph,
+                    "turbidity": turbidity,
+                    "tds": tds,
                     "do": config.FIXED_DO,
                     "ammonia": config.FIXED_AMMONIA,
                 },
             }
 
-            print(f"🔬 Water Quality: {label} ({confidence:.1f}% confidence)")
+            print(f"🔬 Sensor-Based Water Quality: {label} ({confidence:.1f}% confidence)")
             return result
 
         except Exception as e:

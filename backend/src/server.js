@@ -16,6 +16,9 @@ const io = initSocket(server);
 // Make io accessible to routes
 app.set('io', io);
 
+// Start active offline detection for devices
+require('./utils/systemStatus').setIO(io);
+
 // Track connection states
 let mongoConnected = false;
 let mqttConnected = false;

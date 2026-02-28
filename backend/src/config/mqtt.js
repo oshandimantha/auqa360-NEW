@@ -1,6 +1,6 @@
 // MQTT Connection Configuration
 const mqttConfig = {
-    url: process.env.MQTT_URL || 'mqtt://localhost:1883',
+    url: process.env.MQTT_URL || 'mqtt://broker.hivemq.com:1883',
     options: {
         clientId: `aquasense360_backend_${Math.random().toString(16).slice(2, 8)}`,
         clean: true,

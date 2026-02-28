@@ -42,9 +42,9 @@ class SystemStatus {
 
         // Timeout thresholds (in milliseconds)
         this.timeouts = {
-            esp32: 30000,        // 30 seconds (ESP32 publishes every 5s)
-            raspberryPi: 60000,  // 60 seconds
-            yolo: 120000         // 2 minutes
+            esp32: 15000,        // 15 seconds (ESP32 publishes every 5s)
+            raspberryPi: 30000,  // 30 seconds
+            yolo: 30000          // 30 seconds
         };
     }
 
@@ -96,6 +96,37 @@ class SystemStatus {
     updateSocketIO(connected, clients = 0) {
         this.services.socketio.connected = connected;
         this.services.socketio.clients = clients;
+    }
+
+    // Attach Socket.io instance and start active offline detection
+    setIO(io) {
+        this.io = io;
+        if (!this.checkInterval) {
+            // Check every 5 seconds for any devices that timed out
+            this.checkInterval = setInterval(() => this.checkDeviceTimeouts(), 5000);
+        }
+    }
+
+    // Actively broadcast offline events if a device times out
+    checkDeviceTimeouts() {
+        if (!this.io) return;
+
+        ['esp32', 'raspberryPi', 'yolo'].forEach(device => {
+            const isNowAlive = this.isDeviceAlive(device);
+            const wasAlive = device === 'yolo' ? this.devices.yolo.running : this.devices[device].connected;
+
+            if (wasAlive && !isNowAlive) {
+                console.log(`⚠️ ${device} timed out and is now offline.`);
+                // Update internal state
+                if (device === 'yolo') {
+                    this.devices.yolo.running = false;
+                    this.io.emit('model-status', { running: false });
+                } else {
+                    this.devices[device].connected = false;
+                    this.io.emit('device-status', { device, online: false });
+                }
+            }
+        });
     }
 
     // Check if device is still "alive" based on timeout

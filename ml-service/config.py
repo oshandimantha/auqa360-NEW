@@ -31,7 +31,7 @@ WQ_LABELS = {0: "Poor", 1: "Moderate", 2: "Good"}
 
 # ─── Fish Disease YOLO Model ───
 FD_MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "best.pt")
-FD_CONFIDENCE_THRESHOLD = float(os.getenv("FD_CONFIDENCE", 0.7))
+FD_CONFIDENCE_THRESHOLD = float(os.getenv("FD_CONFIDENCE", 0.4))
 
 # ─── Fish Feeding Model ───
 FF_MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "fish_feeding_model.pkl")

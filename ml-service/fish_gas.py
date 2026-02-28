@@ -34,21 +34,9 @@ class FishGasDetector:
         self.loaded = False
 
     def load(self):
-        """Load the gas detection model and scaler."""
-        try:
-            self.model = self._load_model_file(config.GAS_MODEL_PATH)
-            print(f"✅ Gas detection model loaded from {config.GAS_MODEL_PATH}")
-
-            self.scaler = self._load_model_file(config.GAS_SCALER_PATH)
-            print(f"✅ Gas scaler loaded from {config.GAS_SCALER_PATH}")
-
-            self.loaded = True
-        except FileNotFoundError as e:
-            print(f"❌ Gas model file not found: {e}")
-            self.loaded = False
-        except Exception as e:
-            print(f"❌ Error loading gas model: {e}")
-            self.loaded = False
+        """Bypass ML model loading and use rule-based deterministic logic instead."""
+        print("✅ Gas detection system using deterministic CO2 rules (ML models bypassed)")
+        self.loaded = True
 
     def _load_model_file(self, path):
         """Try loading a model file with joblib first, then pickle."""
@@ -101,39 +89,45 @@ class FishGasDetector:
             return None
 
         try:
-            # Build feature array in training order:
-            # [alkalinity, co2_level, temperature, ph, oxygen_level, methane_level]
-            features = np.array([[
-                DEFAULT_ALKALINITY,      # constant — no sensor
-                float(co2),              # from ESP32
-                float(temperature),      # from ESP32
-                float(ph),               # from ESP32
-                DEFAULT_OXYGEN_LEVEL,    # constant — no sensor
-                DEFAULT_METHANE_LEVEL    # constant — no sensor
-            ]])
-
-            features_scaled = self.scaler.transform(features)
-            prediction = self.model.predict(features_scaled)[0]
-            class_id = int(prediction)
-
-            # Probabilities
-            confidence = 0.0
-            try:
-                probs = self.model.predict_proba(features_scaled)[0]
-                confidence = float(max(probs)) * 100
-            except AttributeError:
+            co2 = float(co2)
+            
+            # Safe boundary is typically < 1000 ppm
+            # High danger starts at > 2000 ppm
+            SAFE_CO2_MAX = 1000.0
+            MAX_SPREAD = 1000.0  # Reach 0% health at 2000 ppm
+            
+            # Calculate health (100% down to 0%)
+            if co2 <= SAFE_CO2_MAX:
                 confidence = 100.0
+            else:
+                deviation = co2 - SAFE_CO2_MAX
+                penalty_ratio = min(deviation / MAX_SPREAD, 1.0)
+                confidence = 100.0 * (1.0 - penalty_ratio)
+            
+            confidence = round(confidence, 2)
 
-            label = config.GAS_LABELS.get(class_id, "Unknown")
+            # Assign labels conceptually based on the percentage
+            if confidence >= 80.0:
+                # 80-100% => Safe
+                class_id = 0
+                label = "SAFE"
+            elif confidence >= 50.0:
+                # 50-79% => Warning slightly high CO2, but class 1 in UI
+                class_id = 1
+                label = "DANGER"  # Using existing UI label map
+            else:
+                # 0-49% => Danger very high CO2
+                class_id = 1
+                label = "DANGER"
 
             result = {
                 "gasLevel": class_id,
                 "gasLabel": label,
-                "confidence": round(confidence, 2),
+                "confidence": confidence,
                 "sensorValues": {
                     "ph": float(ph),
                     "temperature": float(temperature),
-                    "co2": float(co2),
+                    "co2": co2,
                     "alkalinity": DEFAULT_ALKALINITY,
                     "oxygenLevel": DEFAULT_OXYGEN_LEVEL,
                     "methaneLevel": DEFAULT_METHANE_LEVEL,
@@ -142,7 +136,7 @@ class FishGasDetector:
             }
 
             icon = "🟢" if class_id == 0 else "🔴"
-            print(f"{icon} Gas: {label} ({confidence:.1f}%) — pH={ph}, Temp={temperature}, CO2={co2}")
+            print(f"{icon} Sensor-Based Gas: {label} ({confidence:.1f}% safety) — CO2={co2}ppm")
             return result
 
         except Exception as e:

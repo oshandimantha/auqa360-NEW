@@ -10,7 +10,7 @@ const THRESHOLDS = {
     turbidity: { min: 0, max: 50, unit: 'NTU' },
     tds: { min: 100, max: 500, unit: 'ppm' },
     co2: { min: 350, max: 1000, unit: 'ppm' },
-    waterLevel: { min: 20, max: 100, unit: '%' }
+    waterLevel: { min: 5, max: 15, unit: 'cm', reversed: true }
 };
 
 // Alert severity levels
@@ -47,8 +47,37 @@ const rulesService = {
      * Check single sensor against its threshold
      */
     checkSingleThreshold(sensor, value, threshold) {
-        const { min, max, unit } = threshold;
+        const { min, max, unit, reversed } = threshold;
 
+        if (reversed) {
+            // Reversed logic (e.g., Water Level uses distance: higher distance = lower water)
+            if (value > max * 1.2) {
+                return {
+                    type: 'danger',
+                    sensor,
+                    value,
+                    threshold: { min, max },
+                    message: `CRITICAL: ${this.formatSensorName(sensor)} is critically low (Distance: ${value}${unit} > max safe ${max}${unit})`,
+                    severity: SEVERITY.CRITICAL,
+                    timestamp: new Date()
+                };
+            }
+            if (value > max) {
+                return {
+                    type: 'warning',
+                    sensor,
+                    value,
+                    threshold: { min, max },
+                    message: `${this.formatSensorName(sensor)} is getting low (Distance: ${value}${unit} > ${max}${unit})`,
+                    severity: SEVERITY.MEDIUM,
+                    timestamp: new Date()
+                };
+            }
+            // For reversed sensors, falling below minimum is generally safe (e.g. 0cm = full tank)
+            return null;
+        }
+
+        // Standard non-reversed logic
         // Critical low
         if (value < min * 0.8) {
             return {
@@ -133,6 +162,12 @@ const rulesService = {
         const threshold = THRESHOLDS[sensor];
         if (!threshold) return 'unknown';
 
+        if (threshold.reversed) {
+            if (value <= threshold.min) return 'optimal';
+            if (value >= threshold.max) return 'high'; // maps to out-of-bounds
+            return 'low';
+        }
+
         if (value < threshold.min) return 'low';
         if (value > threshold.max) return 'high';
         return 'optimal';
@@ -144,6 +179,10 @@ const rulesService = {
     isCritical(sensor, value) {
         const threshold = THRESHOLDS[sensor];
         if (!threshold) return false;
+
+        if (threshold.reversed) {
+            return value > threshold.max * 1.2;
+        }
 
         return value < threshold.min * 0.8 || value > threshold.max * 1.2;
     }

@@ -18,6 +18,11 @@ from fish_feeding import FishFeedingPredictor
 from fish_gas import FishGasDetector
 from stream_server import start_stream_server
 
+# Fix Windows console encoding for emoji/unicode characters
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 
 # ─── Globals ───
 mqtt_client = None
