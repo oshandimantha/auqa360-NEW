@@ -24,6 +24,10 @@ const Fish = () => {
     const [diseaseData, setDiseaseData] = useState(null);
     const [streamConnected, setStreamConnected] = useState(false);
 
+    // Behavior Scanning State
+    const [viewMode, setViewMode] = useState('disease'); // 'disease' or 'behavior'
+    const [behaviorTracking, setBehaviorTracking] = useState(null);
+
     // Throttle ref for disease data updates
     const lastUpdateRef = useRef(0);
 
@@ -73,6 +77,13 @@ const Fish = () => {
                 setOverallStatus(count > 3 ? 'Critical' : (data.diseaseDetected ? 'Warning' : 'Normal'));
                 setDiseaseRisk(data.diseaseDetected ? 'High' : 'Low');
 
+                // Update behavior tracking data if present
+                if (data.tracking && data.tracking.length > 0) {
+                    setBehaviorTracking(data.tracking);
+                } else if (!data.behaviorTrackingActive) {
+                    setBehaviorTracking(null);
+                }
+
                 const statusText = data.diseaseDetected
                     ? `🔴 Disease detected (${data.maxConfidence}%)`
                     : '🟢 Healthy — no disease detected';
@@ -88,6 +99,38 @@ const Fish = () => {
             unsubDisease();
         };
     }, []);
+
+    // Toggle between disease and behavior modes
+    const toggleViewMode = async () => {
+        const newMode = viewMode === 'disease' ? 'behavior' : 'disease';
+        setViewMode(newMode);
+
+        try {
+            const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000/api'}/ml/behavior/scan`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: newMode === 'behavior' ? 'start' : 'stop' })
+            });
+
+            if (!response.ok) throw new Error('Failed to toggle mode');
+
+            if (newMode === 'behavior') {
+                setDetectionLog(prev => [
+                    { message: '📈 Switched to Behavior Tracking mode', time: new Date() },
+                    ...prev
+                ].slice(0, 10));
+            } else {
+                setBehaviorTracking(null);
+                setDetectionLog(prev => [
+                    { message: '🧠 Switched to Disease Detection mode', time: new Date() },
+                    ...prev
+                ].slice(0, 10));
+            }
+        } catch (error) {
+            console.error('Mode toggle error:', error);
+            setViewMode(viewMode); // revert
+        }
+    };
 
     // Get disease status styling
     const getDiseaseStyle = () => {
@@ -127,9 +170,44 @@ const Fish = () => {
                 boxShadow: diseaseStyle.glow || 'none',
                 transition: 'all 0.5s ease'
             }}>
-                <h3 style={{ marginBottom: 'var(--spacing-md)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                    🧠 AI Fish Disease Detection
-                </h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-md)' }}>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', margin: 0 }}>
+                        {viewMode === 'disease' ? '🧠 AI Fish Disease Detection' : '📈 Fish Behavior Tracking'}
+                    </h3>
+
+                    <button
+                        onClick={toggleViewMode}
+                        style={{
+                            padding: '8px 18px',
+                            background: viewMode === 'disease'
+                                ? 'linear-gradient(135deg, #00b4d8, #0077b6)'
+                                : 'linear-gradient(135deg, #f77f00, #e63946)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            fontSize: '0.85rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            transition: 'all 0.3s ease',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                        }}
+                    >
+                        {viewMode === 'disease' ? (
+                            <>
+                                <span>📈</span>
+                                Switch to Behavior
+                            </>
+                        ) : (
+                            <>
+                                <span>🧠</span>
+                                Switch to Disease
+                            </>
+                        )}
+                    </button>
+                </div>
 
                 <div style={{ display: 'flex', gap: 'var(--spacing-lg)', flexWrap: 'wrap', alignItems: 'flex-start' }}>
                     {/* Disease Status */}
@@ -149,6 +227,30 @@ const Fish = () => {
                                 <div>Confidence: <strong style={{ color: 'var(--color-white)' }}>{diseaseData.maxConfidence}%</strong></div>
                                 <div>Camera: <strong style={{ color: 'var(--color-white)' }}>{diseaseData.cameraSource || '—'}</strong></div>
                                 <div>Updated: {diseaseData.timestamp ? new Date(diseaseData.timestamp).toLocaleTimeString() : '—'}</div>
+
+                                {/* Tracking Info if active */}
+                                {diseaseData.tracking && diseaseData.tracking.length > 0 && (
+                                    <div style={{
+                                        marginTop: '10px',
+                                        padding: '8px',
+                                        background: 'rgba(0,0,0,0.2)',
+                                        borderRadius: 'var(--radius-sm)',
+                                        borderLeft: '3px solid var(--color-primary)'
+                                    }}>
+                                        <div style={{ fontWeight: 600, marginBottom: '4px', color: 'var(--color-primary)' }}>Behavior Tracking Active</div>
+                                        {diseaseData.tracking.map(t => (
+                                            <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                                                <span>Fish {t.id}:</span>
+                                                <span style={{
+                                                    color: t.behavior === 'NORMAL' ? '#00e676' :
+                                                        t.behavior === 'ERRATIC' ? '#ff5252' : '#ffb300'
+                                                }}>
+                                                    {t.behavior} (Spd: {Math.round(t.speed)})
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
 
                                 {/* Detection classes */}
                                 {diseaseData.detections && diseaseData.detections.length > 0 && (
@@ -236,6 +338,7 @@ const Fish = () => {
                 abnormalBehavior={diseaseDetectionCount > 3 ? 'Abnormal Behavior' : 'Normal Behavior'}
                 diseaseRisk={diseaseRisk}
                 hasData={diseaseData !== null}
+                behaviorTracking={behaviorTracking}
             />
 
             {/* Detection Log */}

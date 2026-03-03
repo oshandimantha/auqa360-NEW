@@ -1,0 +1,77 @@
+# AquaSense360: Fish Tracker & System Notifications Guide
+
+## 1. How the Fish Tracker Works
+
+The fish tracker uses a combination of Computer Vision (YOLO) and a Centroid Tracking algorithm to monitor individual fish in real-time.
+
+### Step 1: Detection (YOLO)
+The system uses the YOLO (You Only Look Once) model to detect fish in the video stream. For every frame, it identifies the bounding box (location) of each fish.
+
+### Step 2: Tracking (Centroid Tracking)
+The `CentroidTracker` class (`fish_tracker.py`) manages individual fish identities:
+- **Registration**: When a new fish appears, it is assigned a unique ID.
+- **Centroid Calculation**: It calculates the center point (centroid) of each detected fish.
+- **Tracking**: It matches centroids in the current frame to the closest centroids in the previous frame to ensure "Fish #1" stays "Fish #1" as it swims.
+- **Persistence**: If a fish disappears briefly (e.g., swims behind a plant), the system remembers it for up to 15 frames before deregistering it.
+
+### Step 3: Behavior Analysis
+The system analyzes the movement of each tracked fish:
+- **Speed**: Calculated as pixels moved per second.
+- **Erraticness**: It measures the angle of direction changes. If a fish turns sharply and frequently, it marks the movement as erratic.
+- **Health Labels**:
+  - **NORMAL**: Smooth swimming at a healthy speed.
+  - **ABNORMAL**: Speed is too low (< 10 px/s) or movement is highly erratic (> 60° direction changes). This can indicate stress or illness.
+
+---
+
+## 2. System Notifications (Pop-ups)
+
+The system displays toast notifications (top-right pop-ups) for critical events. These are categorized by severity.
+
+### 🔴 Danger / Critical (Red)
+These require immediate attention:
+- **Critical Sensors**:
+  - **Temperature**: Extremely low (< 19.2°C) or Extremely high (> 36°C).
+  - **pH Level**: Highly acidic (< 5.2) or Highly alkaline (> 10.2).
+  - **Water Level**: Critically low (Distance > 18cm).
+  - **CO2/TDS**: Values far outside safe ranges.
+- **AI Alerts**:
+  - **Poor Water Quality**: AI predicts "Poor" water conditions.
+  - **Fish Disease Detected**: YOLO detects signs of disease (e.g., White Spot, Fin Rot).
+  - **Dangerous Gas**: Dangerous gas levels detected in the tank area.
+
+### 🟡 Warning (Orange)
+Important alerts that aren't yet critical:
+- **Sensor Thresholds**: Values slightly outside the optimal range (e.g., pH 8.6 or Temperature 23°C).
+- **Moderate Water Quality**: AI predicts water quality is becoming "Moderate".
+- **Low Water Level**: Water level is getting low (Distance > 15cm).
+
+### 🔵 Info / System (Blue)
+General updates:
+- **Motion Detection (PIR)**: "Motion detected near fish tank" (triggered by the infrared sensor).
+- **Device Status**: Notifications when the ESP32 or Laptop (ML Service) goes online/offline.
+
+---
+
+## 3. Notification Bell Visual Indicators
+
+The Notification Bell in the top navigation bar uses several visual cues to alert you:
+
+### 🔴 The Red Badge
+- **Unread Count**: A red circle appears on the bell icon showing the number of new alerts.
+- **"9+" Display**: If there are more than 9 unread alerts, it simply shows "9+".
+- **Pulse Animation**: The red badge pulses (grows and shrinks slightly) every 2 seconds to grab your attention when there are unread critical messages.
+
+### 📋 The Dropdown List
+When you click the bell, a list appears with these indicators:
+- **Left Border Color**: Each alert has a colored vertical bar on the left (Red for Danger, Orange for Warning, Blue for Info).
+- **Icons**:
+  - 🚨 **Emergency**: Critical sensor or disease alerts.
+  - ⚠️ **Warning**: Out-of-range sensor values.
+  - 👁️ **Eye**: Motion (PIR) detections.
+  - ℹ️ **Blue Info**: General system updates.
+- **Relative Time**: Shows how long ago the alert happened (e.g., "2 minutes ago").
+
+### 🧹 Cleaning Up
+- **Unread Reset**: Clicking the bell to open the list automatically clears the unread count (the red badge disappears).
+- **Clear All**: You can use the "Clear All" button in the dropdown to empty the list.

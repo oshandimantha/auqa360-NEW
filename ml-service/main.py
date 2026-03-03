@@ -65,9 +65,10 @@ def on_mqtt_connect(client, userdata, flags, rc):
         client.subscribe("aquasense/esp32/sensors")
         print("   📥 Subscribed to: aquasense/esp32/sensors (for water quality)")
 
-        # Subscribe to camera switch commands from backend
+        # Subscribe to camera switch and behavior commands from backend
         client.subscribe("aquasense/ml/cmd/camera")
         client.subscribe("aquasense/ml/cmd/fish-disease")
+        client.subscribe("aquasense/ml/cmd/behavior")
 
         # Subscribe to feeder commands and actuator status for AI mode tracking
         client.subscribe("aquasense/esp32/cmd/feeder")
@@ -114,6 +115,17 @@ def on_mqtt_message(client, userdata, msg):
             elif action == "stop":
                 fish_disease_enabled = False
                 print("\n🐟 Fish disease detection DISABLED")
+
+        elif topic == "aquasense/ml/cmd/behavior":
+            # Toggle behavior tracking on/off
+            action = data.get("action")
+            if action == "start":
+                fd_detector.behavior_tracking_enabled = True
+                fd_detector.behavior_tracking_until = float('inf')  # No timeout — stays on until stopped
+                print("\n📈 Behavior tracking ENABLED (toggle mode)")
+            elif action == "stop":
+                fd_detector.behavior_tracking_enabled = False
+                print("\n📈 Behavior tracking DISABLED")
 
         elif topic == "aquasense/esp32/cmd/feeder":
             # Track feeder mode changes
@@ -362,6 +374,7 @@ def command_interface():
     print("    camera <index>   — Switch to camera by index (0, 1, 2...)")
     print("    camera <url>     — Switch to IP/phone camera URL")
     print("    fish start/stop  — Enable/disable fish disease detection")
+    print("    behavior         — Start 30s behavior tracking on stream")
     print("    predict          — Force a water quality prediction now")
     print("    status           — Show current status")
     print("    quit             — Stop the service")
@@ -402,6 +415,11 @@ def command_interface():
             elif cmd == "fish stop":
                 fish_disease_enabled = False
                 print("  🐟 Fish disease detection DISABLED")
+
+            elif cmd == "behavior":
+                fd_detector.behavior_tracking_enabled = True
+                fd_detector.behavior_tracking_until = time.time() + 30
+                print("  📈 Behavior tracking started for 30s (check stream)")
 
             elif cmd == "predict":
                 print("  🔬 Forcing water quality prediction...")

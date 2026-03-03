@@ -149,6 +149,8 @@ const mlHandler = {
                 maxConfidence: data.maxConfidence || 0,
                 status: data.status || 'healthy',
                 cameraSource: data.cameraSource,
+                behaviorTrackingActive: data.behaviorTrackingActive || false,
+                tracking: data.tracking || [],
                 timestamp: data.timestamp || new Date()
             });
 

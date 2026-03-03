@@ -12,6 +12,7 @@ import time
 import threading
 import numpy as np
 import config
+from fish_tracker import CentroidTracker
 
 
 class ThreadedCamera:
@@ -96,20 +97,22 @@ class DetectionOverlay:
     def __init__(self):
         self.lock = threading.Lock()
         self.boxes = []          # list of (x1,y1,x2,y2, class_name, confidence)
+        self.tracking_data = {}  # dict of obj_id -> {centroid, speed, erratic, label, history}
         self.timestamp = 0       # when last detection ran
         self.frame_shape = None  # shape of frame that was analyzed
 
-    def update(self, boxes, frame_shape):
+    def update(self, boxes, tracking_data, frame_shape):
         """Called by YOLO thread after each inference."""
         with self.lock:
             self.boxes = boxes
+            self.tracking_data = tracking_data
             self.timestamp = time.time()
             self.frame_shape = frame_shape
 
     def get(self):
         """Called by compositor to get latest overlay data."""
         with self.lock:
-            return self.boxes.copy(), self.timestamp, self.frame_shape
+            return self.boxes.copy(), self.tracking_data.copy(), self.timestamp, self.frame_shape
 
     def draw_on_frame(self, frame):
         """
@@ -117,7 +120,7 @@ class DetectionOverlay:
         Handles resolution differences between detection and display frames.
         Fades out old detections after OVERLAY_PERSISTENCE seconds.
         """
-        boxes, ts, det_shape = self.get()
+        boxes, tracking_data, ts, det_shape = self.get()
 
         if not boxes or det_shape is None:
             return frame
@@ -164,6 +167,37 @@ class DetectionOverlay:
             (tw, th), baseline = cv2.getTextSize(label, font, font_scale, 1)
             cv2.rectangle(overlay, (x1_s, y1_s - th - 8), (x1_s + tw + 6, y1_s), color, -1)
             cv2.putText(overlay, label, (x1_s + 3, y1_s - 4), font, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Draw Tracking Information if available
+        if tracking_data:
+            for obj_id, t_info in tracking_data.items():
+                cx, cy = t_info['centroid']
+                cx_s, cy_s = int(cx * sx), int(cy * sy)
+                
+                # Determine behavior color
+                behavior = t_info['label']
+                if behavior == "ERRATIC":
+                    t_color = (0, 0, 255) # Red
+                elif behavior == "LETHARGIC":
+                    t_color = (255, 100, 0) # Blue
+                else:
+                    t_color = (0, 255, 0) # Green
+
+                # Draw history trail
+                history = t_info['history']
+                for i in range(1, len(history)):
+                    pt1 = (int(history[i-1][1] * sx), int(history[i-1][2] * sy))
+                    pt2 = (int(history[i][1] * sx), int(history[i][2] * sy))
+                    cv2.line(overlay, pt1, pt2, t_color, 2)
+
+                # Draw dot and ID
+                cv2.circle(overlay, (cx_s, cy_s), 4, t_color, -1)
+                text = f"ID {obj_id}: {behavior}"
+                cv2.putText(overlay, text, (cx_s - 10, cy_s - 10), font, 0.45, t_color, 2)
+                
+                # Draw speed and erraticness
+                stats = f"Spd: {int(t_info['speed'])}px/s"
+                cv2.putText(overlay, stats, (cx_s - 10, cy_s + 15), font, 0.4, (255, 255, 255), 1)
 
         # Blend overlay with alpha for fade effect
         if alpha < 1.0:
@@ -251,6 +285,11 @@ class FishDiseaseDetector:
         self.overlay = DetectionOverlay()
         self.compositor = None      # StreamCompositor instance
         self.inference_fps = 0      # Actual YOLO FPS
+        
+        # On-Demand Tracking Features
+        self.tracker = CentroidTracker(max_disappeared=15, max_distance=150)
+        self.behavior_tracking_enabled = False
+        self.behavior_tracking_until = 0  # Timestamp when tracking should stop
 
     def load(self):
         """Load the YOLO model."""
@@ -400,13 +439,40 @@ class FishDiseaseDetector:
                         if conf > max_confidence:
                             max_confidence = conf
 
+            # Auto-disable behavior tracking if time elapsed
+            if self.behavior_tracking_enabled and time.time() > self.behavior_tracking_until:
+                self.behavior_tracking_enabled = False
+                print("🐟 Behavior tracking duration ended.")
+
+            # Run tracker if enabled
+            tracking_results = {}
+            if self.behavior_tracking_enabled and len(overlay_boxes) > 0:
+                # Convert YOLO boxes to rects for tracker (x1, y1, x2, y2)
+                rects = [(int(b[0]), int(b[1]), int(b[2]), int(b[3])) for b in overlay_boxes]
+                objects = self.tracker.update(rects)
+                
+                for obj_id, centroid in objects.items():
+                    speed, erratic, label = self.tracker.analyze_behavior(obj_id)
+                    tracking_results[obj_id] = {
+                        "centroid": centroid,
+                        "speed": speed,
+                        "erratic": erratic,
+                        "label": label,
+                        "history": list(self.tracker.history[obj_id])
+                    }
+
             # Update detection overlay (compositor will draw these on stream)
-            self.overlay.update(overlay_boxes, frame.shape)
+            self.overlay.update(overlay_boxes, tracking_results, frame.shape)
 
             # Return metadata only — no base64, no frame
             result_data = {
                 "diseaseDetected": disease_detected,
+                "behaviorTrackingActive": self.behavior_tracking_enabled,
                 "detections": detections,
+                "tracking": [
+                    {"id": k, "speed": v["speed"], "erratic": v["erratic"], "behavior": v["label"]} 
+                    for k, v in tracking_results.items()
+                ],
                 "detectionCount": len(detections),
                 "maxConfidence": round(max_confidence * 100, 2),
                 "status": "disease" if disease_detected else "healthy",

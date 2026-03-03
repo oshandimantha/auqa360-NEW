@@ -6,7 +6,8 @@ const DetectionCard = ({
     abnormalBehavior = 'Normal Behavior',
     diseaseRisk = null,
     lastDetectionTime = null,
-    hasData = false
+    hasData = false,
+    behaviorTracking = null  // Array of { id, behavior, speed } from ML tracker
 }) => {
     const getStatusColor = (status) => {
         if (!status) return 'var(--color-gray-400)';
@@ -27,9 +28,26 @@ const DetectionCard = ({
 
     const getBehaviorColor = (behavior) => {
         if (!hasData) return 'var(--color-gray-400)';
-        if (behavior === 'Abnormal Behavior') return 'var(--color-danger)';
+        if (!behavior) return 'var(--color-success)';
+        const lower = behavior.toLowerCase();
+        if (lower.includes('erratic') || lower.includes('abnormal')) return 'var(--color-danger)';
+        if (lower.includes('lethargic')) return 'var(--color-warning)';
         return 'var(--color-success)';
     };
+
+    // Derive the main behavior label from tracking data
+    const getMainBehavior = () => {
+        if (behaviorTracking && behaviorTracking.length > 0) {
+            const hasErratic = behaviorTracking.some(t => t.behavior === 'ERRATIC');
+            const hasLethargic = behaviorTracking.some(t => t.behavior === 'LETHARGIC');
+            if (hasErratic) return 'Erratic Detected';
+            if (hasLethargic) return 'Lethargic Detected';
+            return 'Normal Behavior';
+        }
+        return abnormalBehavior;
+    };
+
+    const mainBehavior = getMainBehavior();
 
     return (
         <div className="card detection-card">
@@ -60,10 +78,26 @@ const DetectionCard = ({
                     <span className="stat-label">Behavior</span>
                     <span
                         className="stat-value"
-                        style={{ color: getBehaviorColor(abnormalBehavior) }}
+                        style={{ color: getBehaviorColor(mainBehavior) }}
                     >
-                        {hasData ? abnormalBehavior : 'Waiting...'}
+                        {hasData ? mainBehavior : 'Waiting...'}
                     </span>
+                    {/* Show individual fish behavior breakdown */}
+                    {behaviorTracking && behaviorTracking.length > 0 && (
+                        <div style={{ marginTop: '6px', fontSize: '0.75rem' }}>
+                            {behaviorTracking.map(t => (
+                                <div key={t.id} style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    padding: '2px 0',
+                                    color: getBehaviorColor(t.behavior)
+                                }}>
+                                    <span>Fish {t.id}</span>
+                                    <span>{t.behavior} ({Math.round(t.speed)}px/s)</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 <div className="detection-stat">

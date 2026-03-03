@@ -1,0 +1,155 @@
+================================================================================
+          HOW FISH BEHAVIOR TRACKING WORKS — AquaSense360
+================================================================================
+
+1. OVERVIEW
+-----------
+Fish Behavior Tracking is an on-demand feature that analyzes how fish move
+in the tank using the existing YOLO camera feed. It detects whether fish are
+swimming normally, moving too slowly (lethargic), or changing direction
+rapidly (erratic). It is toggled ON/OFF from the frontend dashboard.
+
+
+2. HOW IS IT TRIGGERED?
+-----------------------
+  Frontend (Fish Page)
+      |
+      |  User clicks "Switch to Behavior" button
+      v
+  Backend (Node.js API)
+      |
+      |  POST /api/ml/behavior/scan  { action: "start" }
+      v
+  MQTT Broker
+      |
+      |  Topic: aquasense/ml/cmd/behavior
+      v
+  ML Service (Python)
+      |
+      |  Enables CentroidTracker inside FishDiseaseDetector
+      v
+  YOLO detections are now fed into the tracker every frame
+
+
+3. HOW DOES THE TRACKER WORK? (CentroidTracker — fish_tracker.py)
+-----------------------------------------------------------------
+Step 1: YOLO runs on every camera frame and produces bounding boxes
+        for each fish it detects (e.g., [x1, y1, x2, y2]).
+
+Step 2: The CentroidTracker calculates the CENTER POINT (centroid)
+        of each bounding box.
+            centroid_x = (x1 + x2) / 2
+            centroid_y = (y1 + y2) / 2
+
+Step 3: MATCHING — The tracker compares new centroids with previously
+        known centroids using Euclidean distance. The closest match
+        is assumed to be the same fish. This gives each fish a
+        persistent ID across frames (e.g., Fish 0, Fish 1, Fish 2).
+
+Step 4: HISTORY — For each fish ID, the tracker stores the last 30
+        centroids with timestamps:
+            history[fish_id] = [(t1, x1, y1), (t2, x2, y2), ...]
+
+Step 5: If a fish disappears for more than 15 frames, it is
+        deregistered (assumed to have left the frame).
+
+
+4. HOW IS BEHAVIOR ANALYZED? (analyze_behavior method)
+------------------------------------------------------
+For each tracked fish, two metrics are calculated:
+
+  A) SPEED (pixels per second)
+     --------------------------
+     Using the last two centroid positions:
+         distance = sqrt((x2-x1)^2 + (y2-y1)^2)
+         speed = distance / time_difference
+
+     If speed < 10 px/s → Fish is barely moving → LETHARGIC
+
+  B) ERRATICNESS (direction change in degrees)
+     ------------------------------------------
+     Using the last three centroid positions, two movement vectors
+     are created:
+         vector1 = point[-2] - point[-3]   (previous direction)
+         vector2 = point[-1] - point[-2]   (current direction)
+
+     The angle between these vectors is calculated:
+         angle = arccos( dot(v1, v2) / (|v1| * |v2|) )
+
+     If the angle > 60 degrees → Fish changed direction sharply → ERRATIC
+
+  C) BEHAVIOR LABELS:
+     - NORMAL     → Speed >= 10 px/s AND direction change <= 60°
+     - LETHARGIC  → Speed < 10 px/s (barely moving)
+     - ERRATIC    → Direction change > 60° (sudden turns)
+     - INITIALIZING → Not enough data yet (< 3 frames tracked)
+
+
+5. WHAT APPEARS ON THE VIDEO STREAM?
+-------------------------------------
+When behavior tracking is active, the MJPEG stream shows:
+
+  - Colored movement trails (lines connecting past centroids)
+      Green  = NORMAL
+      Blue   = LETHARGIC
+      Red    = ERRATIC
+
+  - A dot at the current fish position with its ID
+      e.g., "ID 0: NORMAL"
+
+  - Speed text below each fish
+      e.g., "Spd: 45px/s"
+
+  - Standard YOLO bounding boxes are still drawn underneath
+
+
+6. WHAT DATA IS SENT TO THE FRONTEND?
+--------------------------------------
+The ML service publishes to MQTT topic: aquasense/ml/fish-disease
+
+When tracking is active, the payload includes:
+
+  {
+    "diseaseDetected": false,
+    "behaviorTrackingActive": true,
+    "detections": [...],            // Normal YOLO detections
+    "tracking": [                   // NEW — behavior data
+      { "id": 0, "speed": 45.2, "erratic": 12.5, "behavior": "NORMAL" },
+      { "id": 1, "speed": 5.1,  "erratic": 8.0,  "behavior": "LETHARGIC" },
+      { "id": 2, "speed": 30.0, "erratic": 85.3, "behavior": "ERRATIC" }
+    ],
+    "detectionCount": 3,
+    ...
+  }
+
+The frontend DetectionCard reads the "tracking" array and updates
+the BEHAVIOR section to show per-fish behavior status.
+
+
+7. LIMITATIONS
+--------------
+  - 2D ONLY: The camera sees a 2D view, so depth (Z-axis) movement
+    is not tracked. A fish swimming toward/away from the camera may
+    appear stationary in 2D.
+
+  - PIXEL-BASED SPEED: Speed is measured in pixels/second, not
+    real-world units (cm/s). The actual speed depends on camera
+    distance and resolution.
+
+  - OCCLUSION: If fish overlap or hide behind objects, the tracker
+    may lose their ID temporarily.
+
+  - LIGHTING: Poor lighting or reflections on the tank glass can
+    affect YOLO detection accuracy.
+
+
+8. FILE LOCATIONS
+-----------------
+  ml-service/fish_tracker.py    — CentroidTracker class (tracking + analysis)
+  ml-service/fish_disease.py    — FishDiseaseDetector (integrates tracker)
+  ml-service/main.py            — MQTT command listener for toggle
+  backend/src/routes/ml.routes.js   — API endpoint for toggle
+  frontend/src/pages/Fish.jsx       — Toggle button UI
+  frontend/src/components/DetectionCard.jsx — Behavior status display
+
+================================================================================

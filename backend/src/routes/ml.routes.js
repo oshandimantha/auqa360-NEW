@@ -105,6 +105,27 @@ router.get('/water-quality/history', async (req, res) => {
     }
 });
 
+// POST /api/ml/behavior/scan
+router.post('/behavior/scan', (req, res) => {
+    try {
+        const action = req.body.action || 'start';
+
+        // Lazy-require to avoid circular dependency:
+        // ml.routes -> mqtt.client -> ml.handler -> ml.routes
+        const mqttClient = require('../mqtt/mqtt.client');
+        mqttClient.publish('aquasense/ml/cmd/behavior', {
+            action: action,
+            timestamp: new Date().toISOString()
+        });
+
+        const msg = action === 'start' ? 'Behavior tracking enabled' : 'Behavior tracking disabled';
+        res.json({ success: true, message: msg, action });
+    } catch (error) {
+        console.error('Error toggling behavior tracking:', error);
+        res.status(500).json({ success: false, error: 'Failed to toggle behavior tracking' });
+    }
+});
+
 module.exports = router;
 module.exports.updateLatestWaterQuality = updateLatestWaterQuality;
 module.exports.updateLatestFishDisease = updateLatestFishDisease;
