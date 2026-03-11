@@ -1,12 +1,3 @@
-"""
-AquaSense360 — Fish Disease Detector (High-Performance Pipeline)
-Decoupled architecture:
-  - Camera thread: captures frames continuously (~30 FPS)
-  - YOLO thread:   runs inference on latest frame (~3-5 FPS), stores overlay
-  - Compositor:    draws latest overlay on raw frames, pushes to MJPEG at ~24 FPS
-
-Result: smooth video stream with detection boxes, even between YOLO inferences.
-"""
 import cv2
 import time
 import threading
@@ -14,13 +5,8 @@ import numpy as np
 import config
 from fish_tracker import CentroidTracker
 
-
 class ThreadedCamera:
-    """
-    Reads camera frames in a dedicated thread so YOLO never waits for camera I/O.
-    Always has the latest frame available instantly.
-    """
-
+    
     def __init__(self, source=0):
         self.source = source
         self.cap = None
@@ -31,7 +17,7 @@ class ThreadedCamera:
         self._thread = None
 
     def start(self):
-        """Open camera and start capture thread."""
+        
         if isinstance(self.source, str):
             self.cap = cv2.VideoCapture(self.source)
         else:
@@ -41,7 +27,6 @@ class ThreadedCamera:
             print(f"❌ Cannot open camera: {self.source}")
             return False
 
-        # Optimize camera buffer — keep only latest frame
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -54,7 +39,7 @@ class ThreadedCamera:
         return True
 
     def _capture_loop(self):
-        """Continuously read frames in background."""
+        
         while self.running:
             if self.cap and self.cap.isOpened():
                 ret, frame = self.cap.read()
@@ -63,11 +48,11 @@ class ThreadedCamera:
                     self.frame = frame
             else:
                 time.sleep(0.1)
-            # Minimal sleep — camera typically runs at 30 FPS
+
             time.sleep(0.003)
 
     def read(self):
-        """Get the latest frame (non-blocking)."""
+        
         with self.lock:
             if self.frame is not None:
                 return self.ret, self.frame.copy()
@@ -77,7 +62,7 @@ class ThreadedCamera:
         return self.cap is not None and self.cap.isOpened()
 
     def stop(self):
-        """Stop capture thread and release camera."""
+        
         self.running = False
         if self._thread:
             self._thread.join(timeout=2)
@@ -86,23 +71,17 @@ class ThreadedCamera:
             self.cap = None
         print("📷 Camera released")
 
-
 class DetectionOverlay:
-    """
-    Thread-safe container for the latest YOLO detection results.
-    The stream compositor reads this to draw bounding boxes on raw frames
-    without waiting for YOLO to finish the next inference.
-    """
-
+    
     def __init__(self):
         self.lock = threading.Lock()
-        self.boxes = []          # list of (x1,y1,x2,y2, class_name, confidence)
-        self.tracking_data = {}  # dict of obj_id -> {centroid, speed, erratic, label, history}
-        self.timestamp = 0       # when last detection ran
-        self.frame_shape = None  # shape of frame that was analyzed
+        self.boxes = []
+        self.tracking_data = {}
+        self.timestamp = 0
+        self.frame_shape = None
 
     def update(self, boxes, tracking_data, frame_shape):
-        """Called by YOLO thread after each inference."""
+        
         with self.lock:
             self.boxes = boxes
             self.tracking_data = tracking_data
@@ -110,16 +89,12 @@ class DetectionOverlay:
             self.frame_shape = frame_shape
 
     def get(self):
-        """Called by compositor to get latest overlay data."""
+        
         with self.lock:
             return self.boxes.copy(), self.tracking_data.copy(), self.timestamp, self.frame_shape
 
     def draw_on_frame(self, frame):
-        """
-        Draw the latest detection boxes on a raw camera frame.
-        Handles resolution differences between detection and display frames.
-        Fades out old detections after OVERLAY_PERSISTENCE seconds.
-        """
+        
         boxes, tracking_data, ts, det_shape = self.get()
 
         if not boxes or det_shape is None:
@@ -129,12 +104,10 @@ class DetectionOverlay:
         persistence = getattr(config, 'OVERLAY_PERSISTENCE', 2.0)
 
         if age > persistence:
-            return frame  # Detections too old, don't draw
+            return frame
 
-        # Calculate alpha for fade-out effect
         alpha = max(0.3, 1.0 - (age / persistence) * 0.7)
 
-        # Scale factors if detection was done at different resolution
         h_frame, w_frame = frame.shape[:2]
         h_det, w_det = det_shape[:2]
         sx = w_frame / w_det
@@ -143,24 +116,21 @@ class DetectionOverlay:
         overlay = frame.copy()
 
         for (x1, y1, x2, y2, class_name, confidence) in boxes:
-            # Scale coordinates to current frame size
+
             x1_s = int(x1 * sx)
             y1_s = int(y1 * sy)
             x2_s = int(x2 * sx)
             y2_s = int(y2 * sy)
 
-            # Color based on class
             lower_name = class_name.lower()
             if "healthy" in lower_name:
-                color = (0, 230, 0)     # Green for healthy
+                color = (0, 230, 0)
             else:
-                color = (0, 80, 255)    # Red-orange for disease
+                color = (0, 80, 255)
 
-            # Draw bounding box
             thickness = 2
             cv2.rectangle(overlay, (x1_s, y1_s), (x2_s, y2_s), color, thickness)
 
-            # Label background
             label = f"{class_name} {confidence:.0f}%"
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.55
@@ -168,38 +138,32 @@ class DetectionOverlay:
             cv2.rectangle(overlay, (x1_s, y1_s - th - 8), (x1_s + tw + 6, y1_s), color, -1)
             cv2.putText(overlay, label, (x1_s + 3, y1_s - 4), font, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
-        # Draw Tracking Information if available
         if tracking_data:
             for obj_id, t_info in tracking_data.items():
                 cx, cy = t_info['centroid']
                 cx_s, cy_s = int(cx * sx), int(cy * sy)
-                
-                # Determine behavior color
+
                 behavior = t_info['label']
                 if behavior == "ERRATIC":
-                    t_color = (0, 0, 255) # Red
+                    t_color = (0, 0, 255)
                 elif behavior == "LETHARGIC":
-                    t_color = (255, 100, 0) # Blue
+                    t_color = (255, 100, 0)
                 else:
-                    t_color = (0, 255, 0) # Green
+                    t_color = (0, 255, 0)
 
-                # Draw history trail
                 history = t_info['history']
                 for i in range(1, len(history)):
                     pt1 = (int(history[i-1][1] * sx), int(history[i-1][2] * sy))
                     pt2 = (int(history[i][1] * sx), int(history[i][2] * sy))
                     cv2.line(overlay, pt1, pt2, t_color, 2)
 
-                # Draw dot and ID
                 cv2.circle(overlay, (cx_s, cy_s), 4, t_color, -1)
                 text = f"ID {obj_id}: {behavior}"
                 cv2.putText(overlay, text, (cx_s - 10, cy_s - 10), font, 0.45, t_color, 2)
-                
-                # Draw speed and erraticness
+
                 stats = f"Spd: {int(t_info['speed'])}px/s"
                 cv2.putText(overlay, stats, (cx_s - 10, cy_s + 15), font, 0.4, (255, 255, 255), 1)
 
-        # Blend overlay with alpha for fade effect
         if alpha < 1.0:
             cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
         else:
@@ -207,15 +171,8 @@ class DetectionOverlay:
 
         return frame
 
-
 class StreamCompositor:
-    """
-    Runs at ~24 FPS in its own thread.
-    Grabs the latest raw camera frame, draws detection overlay, and
-    pushes the composited frame to the MJPEG stream server.
-    Completely independent from YOLO inference timing.
-    """
-
+    
     def __init__(self, camera, overlay, target_fps=None):
         self.camera = camera
         self.overlay = overlay
@@ -227,7 +184,7 @@ class StreamCompositor:
         self._fps_start = time.time()
 
     def start(self):
-        """Start compositor thread."""
+        
         self.running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="StreamCompositor")
         self._thread.start()
@@ -242,17 +199,15 @@ class StreamCompositor:
             try:
                 ret, frame = self.camera.read()
                 if ret and frame is not None:
-                    # Draw detection overlay on raw frame
+
                     frame = self.overlay.draw_on_frame(frame)
 
-                    # Push to MJPEG stream server
                     try:
                         from stream_server import update_frame
                         update_frame(frame)
                     except Exception:
                         pass
 
-                    # FPS calculation
                     self._frame_count += 1
                     elapsed = time.time() - self._fps_start
                     if elapsed >= 2.0:
@@ -263,7 +218,6 @@ class StreamCompositor:
             except Exception as e:
                 print(f"⚠️ Compositor error: {e}")
 
-            # Maintain target FPS
             elapsed = time.time() - t_start
             sleep_time = frame_interval - elapsed
             if sleep_time > 0:
@@ -274,25 +228,23 @@ class StreamCompositor:
         if self._thread:
             self._thread.join(timeout=2)
 
-
 class FishDiseaseDetector:
     def __init__(self):
         self.model = None
         self.loaded = False
-        self.camera = None          # ThreadedCamera instance
+        self.camera = None
         self.camera_index = config.DEFAULT_CAMERA
         self.available_cameras = []
         self.overlay = DetectionOverlay()
-        self.compositor = None      # StreamCompositor instance
-        self.inference_fps = 0      # Actual YOLO FPS
-        
-        # On-Demand Tracking Features
+        self.compositor = None
+        self.inference_fps = 0
+
         self.tracker = CentroidTracker(max_disappeared=15, max_distance=150)
         self.behavior_tracking_enabled = False
-        self.behavior_tracking_until = 0  # Timestamp when tracking should stop
+        self.behavior_tracking_until = 0
 
     def load(self):
-        """Load the YOLO model."""
+        
         try:
             from ultralytics import YOLO
             self.model = YOLO(config.FD_MODEL_PATH)
@@ -307,7 +259,7 @@ class FishDiseaseDetector:
             self.loaded = False
 
     def scan_cameras(self):
-        """Scan for available cameras and return a list of camera info."""
+        
         self.available_cameras = []
         print("📷 Scanning for available cameras...")
 
@@ -333,13 +285,11 @@ class FishDiseaseDetector:
         return self.available_cameras
 
     def switch_camera(self, source):
-        """Switch to a different camera."""
-        # Stop compositor first
+        
         if self.compositor is not None:
             self.compositor.stop()
             self.compositor = None
 
-        # Stop current camera thread
         if self.camera is not None:
             self.camera.stop()
 
@@ -348,7 +298,7 @@ class FishDiseaseDetector:
 
         self.camera = ThreadedCamera(source)
         if self.camera.start():
-            # Restart compositor with new camera
+
             self._start_compositor()
             return True
         else:
@@ -356,17 +306,17 @@ class FishDiseaseDetector:
             return False
 
     def _start_compositor(self):
-        """Start the stream compositor thread."""
+        
         if self.camera is not None:
             self.compositor = StreamCompositor(self.camera, self.overlay)
             self.compositor.start()
 
     def open_camera(self):
-        """Open the default camera with threaded capture + compositor."""
+        
         return self.switch_camera(self.camera_index)
 
     def release_camera(self):
-        """Release the camera and stop compositor."""
+        
         if self.compositor is not None:
             self.compositor.stop()
             self.compositor = None
@@ -375,15 +325,10 @@ class FishDiseaseDetector:
             self.camera = None
 
     def detect(self):
-        """
-        Run YOLO inference on the latest camera frame.
-        Returns detection metadata only (no frame/base64).
-        Detection overlay is stored for the compositor to draw.
-        """
+        
         if not self.loaded:
             return None
 
-        # Get latest frame from threaded camera (non-blocking)
         if self.camera is None or not self.camera.is_opened():
             return None
 
@@ -394,10 +339,8 @@ class FishDiseaseDetector:
         try:
             t0 = time.time()
 
-            # Resize for faster inference (if configured)
             yolo_size = getattr(config, 'YOLO_INPUT_SIZE', 640)
 
-            # Run YOLO inference
             results = self.model(frame, conf=config.FD_CONFIDENCE_THRESHOLD,
                                  imgsz=yolo_size, verbose=False)
 
@@ -429,7 +372,6 @@ class FishDiseaseDetector:
                             }
                         })
 
-                        # Store for overlay drawing
                         overlay_boxes.append((x1, y1, x2, y2, class_name, conf * 100))
 
                         lower_name = class_name.lower()
@@ -439,18 +381,16 @@ class FishDiseaseDetector:
                         if conf > max_confidence:
                             max_confidence = conf
 
-            # Auto-disable behavior tracking if time elapsed
             if self.behavior_tracking_enabled and time.time() > self.behavior_tracking_until:
                 self.behavior_tracking_enabled = False
                 print("🐟 Behavior tracking duration ended.")
 
-            # Run tracker if enabled
             tracking_results = {}
             if self.behavior_tracking_enabled and len(overlay_boxes) > 0:
-                # Convert YOLO boxes to rects for tracker (x1, y1, x2, y2)
+
                 rects = [(int(b[0]), int(b[1]), int(b[2]), int(b[3])) for b in overlay_boxes]
                 objects = self.tracker.update(rects)
-                
+
                 for obj_id, centroid in objects.items():
                     speed, erratic, label = self.tracker.analyze_behavior(obj_id)
                     tracking_results[obj_id] = {
@@ -461,16 +401,14 @@ class FishDiseaseDetector:
                         "history": list(self.tracker.history[obj_id])
                     }
 
-            # Update detection overlay (compositor will draw these on stream)
             self.overlay.update(overlay_boxes, tracking_results, frame.shape)
 
-            # Return metadata only — no base64, no frame
             result_data = {
                 "diseaseDetected": disease_detected,
                 "behaviorTrackingActive": self.behavior_tracking_enabled,
                 "detections": detections,
                 "tracking": [
-                    {"id": k, "speed": v["speed"], "erratic": v["erratic"], "behavior": v["label"]} 
+                    {"id": k, "speed": v["speed"], "erratic": v["erratic"], "behavior": v["label"]}
                     for k, v in tracking_results.items()
                 ],
                 "detectionCount": len(detections),
@@ -492,10 +430,11 @@ class FishDiseaseDetector:
             return None
 
     def get_camera_info(self):
-        """Get current camera info."""
+        
         return {
             "currentCamera": str(self.camera_index),
             "isOpen": self.camera is not None and self.camera.is_opened(),
             "availableCameras": self.available_cameras,
             "compositorFps": round(self.compositor.actual_fps, 1) if self.compositor else 0
         }
+

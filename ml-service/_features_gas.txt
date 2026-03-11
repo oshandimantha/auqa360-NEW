@@ -1,0 +1,1 @@
+['temperature', 'ph', 'alkalinity', 'co2_level', 'oxygen_level', 'methane_level']

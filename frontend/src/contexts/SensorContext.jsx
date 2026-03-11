@@ -25,6 +25,7 @@ export const SensorProvider = ({ children }) => {
         pir: false,
         oxygenPumpOn: false,
         pumpBlocked: false,
+        lastSensorUpdate: null,
     });
 
     // Actuator states — shared across Components page and others
@@ -96,6 +97,7 @@ export const SensorProvider = ({ children }) => {
                     co2: sensors.co2 ?? prev.co2,
                     waterLevel: sensors.waterLevel ?? prev.waterLevel,
                     pir: sensors.pir ?? prev.pir,
+                    lastSensorUpdate: sensors.timestamp ? new Date(sensors.timestamp) : prev.lastSensorUpdate,
                 }));
             } catch (err) {
                 console.warn('SensorContext: sensor API slow/unavailable — using socket data only');
@@ -124,6 +126,7 @@ export const SensorProvider = ({ children }) => {
                 pir: data.pir ?? prev.pir,
                 oxygenPumpOn: data.oxygenPumpOn ?? prev.oxygenPumpOn,
                 pumpBlocked: data.pumpBlocked ?? prev.pumpBlocked,
+                lastSensorUpdate: new Date(),
             }));
 
             // Update pump safety from sensor data

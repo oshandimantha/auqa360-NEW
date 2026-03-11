@@ -93,6 +93,7 @@ const Air = () => {
                     <SensorCard
                         sensorType="co2"
                         value={sensorData.co2}
+                        timestamp={sensorData.lastSensorUpdate}
                     />
                 </div>
             </section>

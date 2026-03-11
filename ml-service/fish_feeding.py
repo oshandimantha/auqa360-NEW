@@ -1,17 +1,7 @@
-"""
-AquaSense360 — Fish Feeding Predictor
-Loads the pickle model + scaler and predicts feeding level from CO2/methane readings.
-
-Feeding Levels:
-  0 = SKIP FEEDING    (high methane ~686 ppm → fish not hungry)
-  1 = REDUCED FEEDING (medium methane ~581 ppm)
-  2 = FULL FEEDING    (low methane ~404 ppm → fish hungry)
-"""
 import pickle
 import numpy as np
 import time
 import config
-
 
 class FishFeedingPredictor:
     def __init__(self):
@@ -20,7 +10,7 @@ class FishFeedingPredictor:
         self.loaded = False
 
     def load(self):
-        """Load the pickle model and scaler."""
+        
         try:
             self.model = self._load_model_file(config.FF_MODEL_PATH)
             print(f"✅ Fish feeding model loaded from {config.FF_MODEL_PATH}")
@@ -38,7 +28,7 @@ class FishFeedingPredictor:
             self.loaded = False
 
     def _load_model_file(self, path):
-        """Try loading a model file with joblib first, then pickle."""
+        
         import warnings
         warnings.filterwarnings("ignore")
 
@@ -69,18 +59,7 @@ class FishFeedingPredictor:
         raise Exception(f"Could not load {path} with any method")
 
     def predict(self, sensor_data):
-        """
-        Predict feeding level from sensor data.
-
-        The model expects 5 features in order: [pH, TDS, Temperature, Turbidity, Methane]
-        Methane is mapped from the CO2 sensor reading.
-
-        Args:
-            sensor_data: dict with keys: ph, tds, temperature, turbidity, co2
-
-        Returns:
-            dict with prediction info or None on failure.
-        """
+        
         if not self.loaded:
             return None
 
@@ -91,9 +70,8 @@ class FishFeedingPredictor:
         tds = sensor_data.get("tds")
         temperature = sensor_data.get("temperature")
         turbidity = sensor_data.get("turbidity")
-        co2 = sensor_data.get("co2")  # Used as Methane proxy
+        co2 = sensor_data.get("co2")
 
-        # All 5 features are required
         if any(v is None for v in [ph, tds, temperature, turbidity, co2]):
             missing = [k for k, v in {"ph": ph, "tds": tds, "temperature": temperature,
                                        "turbidity": turbidity, "co2": co2}.items() if v is None]
@@ -101,23 +79,20 @@ class FishFeedingPredictor:
             return None
 
         try:
-            # Build feature array in training order: [pH, TDS, Temperature, Turbidity, Methane]
+
             features = np.array([[
                 float(ph),
                 float(tds),
                 float(temperature),
                 float(turbidity),
-                float(co2)  # Methane proxy
+                float(co2)
             ]])
 
-            # Scale features
             features_scaled = self.scaler.transform(features)
 
-            # Predict
             prediction = self.model.predict(features_scaled)[0]
             class_id = int(prediction)
 
-            # Try to get prediction probabilities
             confidence = 0.0
             try:
                 probabilities = self.model.predict_proba(features_scaled)[0]

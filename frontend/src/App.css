@@ -369,6 +369,14 @@ body {
   color: var(--color-danger);
 }
 
+.sensor-card .sensor-timestamp {
+  margin-top: var(--spacing-sm);
+  font-size: 0.7rem;
+  color: var(--color-gray-400);
+  opacity: 0.8;
+  letter-spacing: 0.3px;
+}
+
 /* ================================
    Control Cards (Actuators)
    ================================ */

@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { THRESHOLDS, getStatus } from '../utils/thresholds';
-import { formatValue } from '../utils/format';
+import { formatValue, formatRelativeTime } from '../utils/format';
 
 const SensorCard = ({
     sensorType,
@@ -9,13 +9,22 @@ const SensorCard = ({
     customLabel = null,
     customUnit = null,
     showStatus = true,
-    onClick = null
+    onClick = null,
+    timestamp = null
 }) => {
     const threshold = THRESHOLDS[sensorType] || {};
     const icon = customIcon || threshold.icon || '📊';
     const label = customLabel || threshold.label || sensorType;
     const unit = customUnit !== null ? customUnit : (threshold.unit || '');
     const status = getStatus(sensorType, value);
+
+    // Live-ticking relative time (re-render every 30s)
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        if (!timestamp) return;
+        const interval = setInterval(() => setTick(t => t + 1), 30000);
+        return () => clearInterval(interval);
+    }, [timestamp]);
 
     const getStatusLabel = () => {
         switch (status) {
@@ -45,6 +54,11 @@ const SensorCard = ({
             {showStatus && value !== null && value !== undefined && (
                 <div className={`sensor-status ${status}`}>
                     {getStatusLabel()}
+                </div>
+            )}
+            {timestamp && (
+                <div className="sensor-timestamp">
+                    🕐 {formatRelativeTime(timestamp)}
                 </div>
             )}
         </div>

@@ -1,0 +1,843 @@
+# 🐟 AquaSense360 — Complete System Guide (A to Z)
+
+This document explains **every part** of the AquaSense360 system so you can fully understand how it works independently.
+
+---
+
+## 1. System Overview — The Big Picture
+
+AquaSense360 is an **IoT fish tank monitoring and automation system** with 4 major components:
+
+```mermaid
+graph TB
+    subgraph "🔧 HARDWARE (Fish Tank)"
+        ESP["🔌 ESP32 Microcontroller"]
+        SENSORS["📡 7 Sensors"]
+        ACTUATORS["⚙️ Actuators"]
+    end
+    
+    subgraph "☁️ CLOUD"
+        MQTT["📡 HiveMQ MQTT Broker"]
+        DB["🗄️ MongoDB Atlas"]
+    end
+    
+    subgraph "💻 LAPTOP"
+        BACKEND["🖥️ Node.js Backend :5000"]
+        FRONTEND["🌐 React Frontend :3000"]
+        ML["🤖 Python ML Service"]
+    end
+    
+    ESP -->|publishes sensor data| MQTT
+    MQTT -->|sensor data arrives| BACKEND
+    BACKEND -->|saves readings| DB
+    BACKEND -->|Socket.IO real-time| FRONTEND
+    BACKEND -->|commands via MQTT| ESP
+    ML -->|predictions via MQTT| MQTT
+    MQTT -->|predictions arrive| BACKEND
+    BACKEND -->|predictions| FRONTEND
+    ML -->|reads sensor data| MQTT
+```
+
+### How Data Flows (Step by Step)
+
+| Step | What happens | Technology |
+|------|-------------|------------|
+| 1 | ESP32 reads all 7 sensors every **5 seconds** | Arduino C++ |
+| 2 | ESP32 publishes JSON to `aquasense/esp32/sensors` | MQTT (HiveMQ public broker) |
+| 3 | Backend receives MQTT message | Node.js mqtt.js library |
+| 4 | `esp32.handler.js` processes the data | Express handler |
+| 5 | Data saved to MongoDB Atlas (optional) | Mongoose ODM |
+| 6 | Data emitted to frontend via `io.emit('sensor-update', data)` | Socket.IO WebSocket |
+| 7 | `SensorContext.jsx` receives the event and updates React state | React Context API |
+| 8 | All pages (Water, Air, etc.) re-render with new values | React components |
+
+---
+
+## 2. Project Folder Structure
+
+```
+auqa360/
+├── backend/                  ← Node.js Express API server
+│   ├── .env                  ← Backend environment variables
+│   ├── src/
+│   │   ├── server.js         ← ENTRY POINT - boots everything
+│   │   ├── app.js            ← Express app with routes & middleware
+│   │   ├── config/
+│   │   │   ├── db.js         ← MongoDB connection
+│   │   │   ├── cors.js       ← CORS whitelist (allows LAN IPs)
+│   │   │   └── mqtt.js       ← MQTT broker settings
+│   │   ├── mqtt/
+│   │   │   ├── mqtt.client.js    ← Connects to HiveMQ, routes messages
+│   │   │   ├── mqtt.topics.js    ← All MQTT topic names (central registry)
+│   │   │   ├── handlers/
+│   │   │   │   ├── esp32.handler.js   ← Processes ESP32 sensor data
+│   │   │   │   ├── laptop.handler.js  ← YOLO detection from laptop
+│   │   │   │   ├── ml.handler.js      ← ML predictions (water quality, gas, feeding)
+│   │   │   │   └── pi.handler.js      ← Raspberry Pi detections
+│   │   │   └── publishers/
+│   │   │       └── esp32.publisher.js ← Sends commands TO ESP32
+│   │   ├── models/               ← MongoDB schemas
+│   │   │   ├── SensorReading.js  ← temperature, ph, turbidity, tds, co2, waterLevel
+│   │   │   ├── ActuatorState.js  ← oxygenPump, feeder states
+│   │   │   ├── FishDetection.js  ← YOLO detection results
+│   │   │   ├── FeedingSchedule.model.js ← Scheduled feeding times
+│   │   │   ├── WaterQualityPrediction.js ← ML water quality predictions
+│   │   │   ├── LaptopDetection.js   ← Laptop YOLO detections
+│   │   │   └── EventLog.js      ← System event history
+│   │   ├── controllers/         ← Business logic for API routes
+│   │   │   ├── sensors.controller.js
+│   │   │   ├── actuators.controller.js
+│   │   │   ├── detections.controller.js
+│   │   │   ├── feedingSchedule.controller.js
+│   │   │   └── reports.controller.js
+│   │   ├── routes/              ← API endpoint definitions
+│   │   │   ├── sensors.routes.js    → /api/sensors
+│   │   │   ├── actuators.routes.js  → /api/actuators
+│   │   │   ├── detections.routes.js → /api/detections
+│   │   │   ├── ml.routes.js         → /api/ml
+│   │   │   ├── reports.routes.js    → /api/reports
+│   │   │   └── feedingSchedule.routes.js → /api/feeding
+│   │   ├── sockets/
+│   │   │   └── realtime.socket.js ← Socket.IO setup & control commands
+│   │   ├── services/
+│   │   │   └── rules.service.js   ← Threshold checking (alerts)
+│   │   └── utils/
+│   │       └── systemStatus.js    ← Tracks device online/offline status
+│
+├── frontend/                 ← React single-page app
+│   ├── .env                  ← Frontend environment variables
+│   ├── src/
+│   │   ├── App.js            ← Root component, routing, Socket.IO connect
+│   │   ├── App.css           ← Global styles
+│   │   ├── contexts/
+│   │   │   └── SensorContext.jsx ← THE BRAIN — stores ALL sensor data
+│   │   ├── services/
+│   │   │   ├── socket.js     ← Socket.IO client (real-time connection)
+│   │   │   └── api.js        ← Axios HTTP client (REST API calls)
+│   │   ├── pages/
+│   │   │   ├── Home.jsx      ← Dashboard overview
+│   │   │   ├── Water.jsx     ← Water quality (temp, pH, turbidity, TDS)
+│   │   │   ├── Air.jsx       ← Air quality (CO2, gas detection)
+│   │   │   ├── Fish.jsx      ← Fish detection (YOLO camera feed)
+│   │   │   ├── Components.jsx ← Actuator controls (pump, feeder, RTC)
+│   │   │   └── Reports.jsx   ← Historical charts & data exports
+│   │   ├── components/
+│   │   │   ├── Navbar.jsx         ← Top navigation bar
+│   │   │   ├── SensorCard.jsx     ← Reusable sensor value card
+│   │   │   ├── ChartPanel.jsx     ← Chart wrapper
+│   │   │   ├── DetectionCard.jsx  ← Fish detection display
+│   │   │   ├── ActuatorControls.jsx ← Pump control UI
+│   │   │   ├── FeederControl.jsx  ← Feeder control UI (schedule, manual, AI)
+│   │   │   ├── NotificationBell.jsx ← Alert notification dropdown
+│   │   │   ├── VideoStream.jsx    ← Camera live stream viewer
+│   │   │   └── PageLoader.jsx     ← Loading spinner
+│   │   └── utils/             ← Helper functions
+│
+├── ml-service/               ← Python AI/ML service
+│   ├── main.py               ← ENTRY POINT - runs all ML loops
+│   ├── config.py             ← MQTT settings, model paths, intervals
+│   ├── water_quality.py      ← Water quality prediction model
+│   ├── fish_disease.py       ← YOLO fish disease detection
+│   ├── fish_feeding.py       ← Fish feeding level prediction  
+│   ├── fish_gas.py           ← Gas safety prediction
+│   ├── fish_tracker.py       ← Fish behavior tracking
+│   ├── stream_server.py      ← MJPEG video stream server
+│   ├── models/               ← Trained ML model files (.pkl, .pt)
+│   └── requirements.txt      ← Python dependencies
+│
+├── esp32/                    ← Arduino code for the ESP32
+│   └── AquaSense360_ESP32.ino ← ALL hardware code (1229 lines)
+│
+└── package.json              ← Root project (npm start runs both)
+```
+
+---
+
+## 3. Component 1: ESP32 Hardware (The Sensors)
+
+**File:** [AquaSense360_ESP32.ino](file:///c:/Users/Oshan/Pictures/auqa360/esp32/AquaSense360_ESP32.ino)
+
+The ESP32 is the **physical microcontroller** sitting at the fish tank. It reads sensors and controls actuators.
+
+### 3.1 What Sensors are Connected
+
+| Sensor | What it Measures | ESP32 Pin | Reading Method |
+|--------|-----------------|-----------|----------------|
+| **DS18B20** | Water Temperature (°C) | GPIO 27 | OneWire digital |
+| **pH Sensor** | Water pH level (0-14) | GPIO 34 | ADC (analog) |
+| **TDS Sensor** | Total Dissolved Solids (ppm) | GPIO 35 | ADC (analog) |
+| **Turbidity Sensor** | Water clarity (NTU/%) | GPIO 36 | ADC (analog) |
+| **MH-Z19C** | CO2 level (ppm) | GPIO 16/17 | UART serial |
+| **HC-SR04 Ultrasonic** | Water Level distance (cm) | GPIO 12/14 | Digital pulse |
+| **PIR Motion Sensor** | Motion near tank | GPIO 26 | Digital HIGH/LOW |
+
+### 3.2 What Actuators are Controlled
+
+| Actuator | Purpose | ESP32 Pin | Control Method |
+|----------|---------|-----------|----------------|
+| **Oxygen Pump** | Air pump for dissolved O2 | GPIO 33 (Relay) | ON/OFF relay |
+| **Servo Feeder** | Rotates to dispense fish food | GPIO 13 | PWM servo angle |
+
+### 3.3 How ESP32 Communicates
+
+1. **WiFi:** Connects to your phone hotspot (`oshan` / `oshanuoj`)
+2. **MQTT Publish:** Sends sensor data every **5 seconds** to `aquasense/esp32/sensors`
+3. **MQTT Subscribe:** Listens for commands on `aquasense/esp32/cmd/*` topics
+
+### 3.4 ESP32 Sensor Data JSON (What gets published every 5 seconds)
+
+```json
+{
+  "deviceId": "esp32_fishtank_01",
+  "temperature": 27.50,
+  "ph": 7.20,
+  "turbidity": 15,
+  "tds": 250.5,
+  "co2": 450,
+  "waterLevel": 8.3,
+  "waterLevelPercent": 78.0,
+  "pir": false,
+  "oxygenPumpOn": true,
+  "pumpAutoMode": true,
+  "pumpBlocked": false,
+  "ip": "192.168.43.100",
+  "rssi": -55,
+  "timestamp": "2026-03-08T22:00:00"
+}
+```
+
+### 3.5 Water Level Calculation
+
+The ultrasonic sensor measures **distance** from sensor to water surface:
+- `5.0 cm` distance = Tank is **100% full** (water is close to sensor)
+- `20.0 cm` distance = Tank is **0% empty** (water is far away)
+- Linear interpolation between these two values
+
+### 3.6 Oxygen Pump Safety Logic
+
+The pump has a **30% water level threshold**:
+- **Auto Mode:** Pump turns ON when water ≥ 30%, turns OFF when < 30%
+- **Manual Mode:** You can toggle, but it **blocks** turning ON if water < 30%
+- This prevents the pump from running dry and burning out
+
+### 3.7 Feeder Modes
+
+The servo feeder has **3 modes**:
+- **Auto Mode:** Feeds based on RTC time schedules (synced from MongoDB via backend)
+- **Manual Mode:** Feed on demand from web dashboard button
+- **AI Mode:** ML service predicts when fish are hungry based on CO2 patterns
+
+---
+
+## 4. Component 2: Node.js Backend (The Brain)
+
+The backend is the **central hub** that connects everything together.
+
+### 4.1 Startup Sequence
+
+**File:** [server.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/server.js)
+
+When you run `npm start`, the backend does this in order:
+
+```mermaid
+graph TD
+    A["1. Load .env variables"] --> B["2. Create Express app"]
+    B --> C["3. Initialize Socket.IO on HTTP server"]
+    C --> D["4. Connect to MongoDB Atlas (optional)"]
+    D --> E["5. Connect to HiveMQ MQTT broker"]
+    E --> F["6. Start listening on port 5000"]
+    F --> G["🚀 Backend is ready!"]
+```
+
+> [!IMPORTANT]
+> The server starts even if MongoDB or MQTT fail. It will work without the database (no history) and without MQTT (no live sensor data).
+
+### 4.2 Environment Variables
+
+**File:** [backend/.env](file:///c:/Users/Oshan/Pictures/auqa360/backend/.env)
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `PORT` | `5000` | Backend HTTP port |
+| `MONGO_URI` | `mongodb://...mongodb.net` | MongoDB Atlas cloud connection |
+| `MQTT_URL` | `mqtt://broker.hivemq.com:1883` | Public HiveMQ MQTT broker |
+| `FRONTEND_URL` | `http://192.168.43.118:3000` | For CORS (allow this origin) |
+
+### 4.3 MQTT Message Flow (How sensor data arrives)
+
+**File:** [mqtt.client.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/mqtt/mqtt.client.js)
+
+```mermaid
+graph LR
+    A["MQTT Message Arrives"] --> B{"Which topic?"}
+    B -->|aquasense/esp32/*| C["esp32.handler.js"]
+    B -->|aquasense/ml/*| D["ml.handler.js"]
+    B -->|aquasense/laptop/*| E["laptop.handler.js"]
+    B -->|aquasense/pi/*| F["pi.handler.js"]
+    
+    C --> G["Save to MongoDB"]
+    C --> H["Emit 'sensor-update' via Socket.IO"]
+    D --> I["Save prediction"]
+    D --> J["Emit prediction via Socket.IO"]
+```
+
+### 4.4 Complete MQTT Topic Map
+
+**File:** [mqtt.topics.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/mqtt/mqtt.topics.js)
+
+#### Topics the Backend SUBSCRIBES TO (listening):
+
+| Topic | Published By | Data |
+|-------|-------------|------|
+| `aquasense/esp32/sensors` | ESP32 | All sensor readings JSON |
+| `aquasense/esp32/status` | ESP32 | Online/offline + IP + RSSI |
+| `aquasense/esp32/actuators/status` | ESP32 | Pump, feeder states |
+| `aquasense/esp32/pir` | ESP32 | Motion detection events |
+| `aquasense/ml/water-quality` | ML Service | Good/Moderate/Poor prediction |
+| `aquasense/ml/fish-disease` | ML Service | YOLO disease detection |
+| `aquasense/ml/fish-feeding` | ML Service | Full/Reduced/Skip feeding |
+| `aquasense/ml/fish-gas` | ML Service | Safe/Danger gas prediction |
+| `aquasense/ml/status` | ML Service | ML service online status |
+| `aquasense/laptop/detection` | ML Service | Fish count + camera frame |
+| `aquasense/laptop/status` | ML Service | Laptop online status |
+
+#### Topics the Backend PUBLISHES TO (commands):
+
+| Topic | Sent To | Purpose |
+|-------|---------|---------|
+| `aquasense/esp32/cmd/oxygenPump` | ESP32 | Toggle pump ON/OFF or switch mode |
+| `aquasense/esp32/cmd/feeder` | ESP32 | Trigger feed, switch mode, sync schedules |
+| `aquasense/esp32/cmd/rtc` | ESP32 | Set RTC time, reset, get time |
+| `aquasense/esp32/cmd/all` | ESP32 | Batch commands (getActuators, getSensors) |
+
+### 4.5 ESP32 Handler — The Most Important Handler
+
+**File:** [esp32.handler.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/mqtt/handlers/esp32.handler.js)
+
+This is the file that processes every sensor reading from the ESP32:
+
+1. **Receives** JSON sensor data from MQTT topic `aquasense/esp32/sensors`
+2. **Updates** ESP32 status (`systemStatus.updateESP32(...)`)
+3. **Saves** to MongoDB (if connected) — creates a `SensorReading` document
+4. **Checks thresholds** via `rulesService.checkThresholds(data)` — generates alerts
+5. **Emits** to all connected browsers: `io.emit('sensor-update', data)`
+
+### 4.6 REST API Endpoints
+
+**File:** [app.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/app.js)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/health` | GET | Health check — returns `{status: 'ok'}` |
+| `/api/status` | GET | Full system status (all devices + services) |
+| `/api/sensors` | GET | Latest sensor reading from MongoDB |
+| `/api/sensors/history` | GET | Historical sensor data (daily/weekly) |
+| `/api/actuators` | GET | Current actuator states |
+| `/api/actuators/toggle` | POST | Toggle an actuator (sends MQTT command) |
+| `/api/detections` | GET | Fish detection history |
+| `/api/detections/alerts` | GET | Alert history |
+| `/api/reports` | GET | Aggregated report data |
+| `/api/feeding/schedules` | GET/POST/PUT/DELETE | CRUD feeding schedules |
+| `/api/feeding/sync` | POST | Sync schedules to ESP32 via MQTT |
+| `/api/ml/water-quality/latest` | GET | Latest water quality prediction |
+| `/api/ml/fish-disease/latest` | GET | Latest fish disease detection |
+| `/api/ml/fish-feeding/latest` | GET | Latest feeding prediction |
+| `/api/ml/fish-gas/latest` | GET | Latest gas detection |
+
+### 4.7 Socket.IO Real-Time Events
+
+**File:** [realtime.socket.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/sockets/realtime.socket.js)
+
+#### Events the Backend EMITS to Frontend:
+
+| Event | Data | Triggered By |
+|-------|------|-------------|
+| `sensor-update` | `{temperature, ph, turbidity, tds, co2, waterLevel, ...}` | ESP32 sensor reading |
+| `actuator-update` | `{oxygenPump, feeder, pumpAutoMode, ...}` | ESP32 state change |
+| `device-status` | `{device: 'esp32', online: true/false}` | Device connect/disconnect |
+| `mqtt-status` | `{connected: true/false}` | MQTT broker connect/disconnect |
+| `model-status` | `{running: true/false}` | YOLO model start/stop |
+| `water-quality-prediction` | `{prediction: 'Good', confidence: 0.95}` | ML water quality |
+| `fish-feeding-prediction` | `{prediction: 'FULL FEEDING', confidence: 0.8}` | ML feeding |
+| `fish-gas-detection` | `{prediction: 'SAFE', confidence: 0.9}` | ML gas detection |
+| `detection` | `{fishCount, source: 'laptop', ...}` | YOLO fish detection |
+| `alert` | `{type: 'warning', message: '...'}` | Threshold breach |
+
+#### Events the Backend LISTENS FROM Frontend:
+
+| Event | Purpose |
+|-------|---------|
+| `control` | Actuator commands (forwarded to ESP32 via MQTT) |
+| `stream` | Start/stop video stream |
+
+### 4.8 Database Schema (MongoDB Atlas)
+
+**Models directory:** [models/](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/models)
+
+#### SensorReading Collection
+```
+{
+  temperature: Number,    // e.g., 27.5 °C
+  ph: Number,            // e.g., 7.2
+  turbidity: Number,     // e.g., 15 NTU
+  tds: Number,           // e.g., 250 ppm
+  co2: Number,           // e.g., 450 ppm
+  waterLevel: Number,    // e.g., 8.3 cm (distance)
+  pir: Boolean,          // true if motion detected
+  timestamp: Date        // indexed for fast queries
+}
+```
+
+#### ActuatorState Collection
+```
+{
+  name: String,          // "oxygenPump" | "feeder"
+  state: Boolean,        // true = ON
+  lastUpdated: Date
+}
+```
+
+#### FeedingSchedule Collection
+```
+{
+  name: String,          // "Morning Feed"
+  hour: Number,          // 8
+  minute: Number,        // 0
+  days: [Number],        // [1,2,3,4,5] (Mon-Fri)
+  enabled: Boolean
+}
+```
+
+### 4.9 System Status Tracking
+
+**File:** [systemStatus.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/utils/systemStatus.js)
+
+A singleton class that tracks whether each device is online:
+- **ESP32 timeout:** 15 seconds (since it publishes every 5s)
+- **Laptop/YOLO timeout:** 30 seconds
+- Checks every 5 seconds if a device has timed out → emits `device-status` offline
+
+### 4.10 CORS Configuration
+
+**File:** [cors.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/config/cors.js)
+
+Allows requests from:
+- `http://localhost:*` (any port)
+- `http://127.0.0.1:*`
+- `http://192.168.*.*:*` (any LAN IP)
+- `http://10.*.*.*:*` (any LAN IP)
+
+---
+
+## 5. Component 3: React Frontend (The Dashboard)
+
+The frontend is a **React single-page application** that shows all sensor data and lets you control actuators.
+
+### 5.1 How it Starts
+
+**File:** [App.js](file:///c:/Users/Oshan/Pictures/auqa360/frontend/src/App.js)
+
+```mermaid
+graph TD
+    A["App.js mounts"] --> B["Connect to Socket.IO"]
+    B --> C["Wrap everything in SensorProvider"]
+    C --> D["Render Navbar + Routes"]
+    D --> E["/ → Home page"]
+    D --> F["/water → Water page"]
+    D --> G["/air → Air page"]
+    D --> H["/fish → Fish page"]
+    D --> I["/components → Controls page"]
+    D --> J["/reports → Reports page"]
+```
+
+### 5.2 Environment Variables
+
+**File:** [frontend/.env](file:///c:/Users/Oshan/Pictures/auqa360/frontend/.env)
+
+| Variable | Current Value | Purpose |
+|----------|--------------|---------|
+| `REACT_APP_API_URL` | `http://192.168.43.118:5000/api` | REST API base URL |
+| `REACT_APP_SOCKET_URL` | `http://192.168.43.118:5000` | Socket.IO server URL |
+| `REACT_APP_PI_STREAM_URL` | `http://raspberrypi:8080/stream` | Raspberry Pi camera |
+| `REACT_APP_ML_STREAM_URL` | `http://192.168.43.118:8765/video_feed` | ML YOLO camera stream |
+
+> [!TIP]
+> If the frontend can't connect, these URLs are the **first thing to check**. They must match where the backend is running.
+
+### 5.3 SensorContext — The Single Source of Truth
+
+**File:** [SensorContext.jsx](file:///c:/Users/Oshan/Pictures/auqa360/frontend/src/contexts/SensorContext.jsx)
+
+This is the **most important frontend file**. It holds ALL shared state:
+
+```
+SensorContext provides:
+├── sensorData          ← temperature, ph, turbidity, tds, co2, waterLevel, pir
+├── actuatorStates      ← oxygenPump, pumpAutoMode, feeder, feederAutoMode, feederAiMode
+├── pumpSafety          ← waterPercent, blocked, minLevel
+├── systemStatus        ← esp32, raspberryPi, yolo, mqtt connection status
+├── rtcTime             ← ESP32 real-time clock timestamp
+├── initialLoaded       ← Whether initial data fetch is complete
+└── updateActuatorState ← Function to update actuator state locally
+```
+
+**How it gets data:**
+1. **On mount:** Fetches `GET /api/status` and `GET /api/sensors` (one-time)
+2. **Real-time:** Subscribes to Socket.IO events:
+   - `sensor-update` → updates `sensorData`
+   - `actuator-update` → updates `actuatorStates`
+   - `device-status` → updates `systemStatus`
+   - `mqtt-status` → updates MQTT connection
+   - `model-status` → updates YOLO status
+3. **Polling:** Fetches system status every 30 seconds as a fallback
+
+### 5.4 Socket.IO Client Service
+
+**File:** [socket.js](file:///c:/Users/Oshan/Pictures/auqa360/frontend/src/services/socket.js)
+
+A singleton `SocketService` class that:
+- Connects to `REACT_APP_SOCKET_URL` (or `http://localhost:5000`)
+- Tries WebSocket first, falls back to HTTP polling
+- Reconnects up to 5 times automatically
+- Provides `subscribe(event, callback)` and returns an unsubscribe function
+- Provides `sendCommand(command, data)` for actuator control
+- Provides `toggleActuator(name, state, extraParams)` for pump/feeder buttons
+
+### 5.5 API Client Service
+
+**File:** [api.js](file:///c:/Users/Oshan/Pictures/auqa360/frontend/src/services/api.js)
+
+An Axios instance that:
+- Base URL: `REACT_APP_API_URL` (or `http://localhost:5000/api`)
+- 5-second timeout on all requests
+- Provides functions: `getSensorData()`, `getHistoricalData()`, `toggleActuator()`, `getSystemStatus()`, etc.
+
+### 5.6 Frontend Pages
+
+| Page | Route | Shows |
+|------|-------|-------|
+| **Home** | `/` | Dashboard overview with key metrics |
+| **Water** | `/water` | Temperature, pH, Turbidity, TDS, Water Level + ML prediction |
+| **Air** | `/air` | CO2 levels + Gas safety prediction |
+| **Fish** | `/fish` | YOLO camera feed, fish count, disease detection |
+| **Components** | `/components` | Oxygen pump toggle, feeder controls (auto/manual/AI), RTC time |
+| **Reports** | `/reports` | Historical charts, data trends, export options |
+
+### 5.7 Key Components
+
+| Component | Purpose |
+|-----------|---------|
+| `SensorCard.jsx` | Reusable card showing one sensor value with status color |
+| `ActuatorControls.jsx` | Oxygen pump ON/OFF toggle with auto/manual mode switch |
+| `FeederControl.jsx` | Full feeder UI: 3 modes (Auto/Manual/AI), schedule manager, feed button |
+| `NotificationBell.jsx` | Bell icon in navbar, shows alert history, toast popups for critical alerts |
+| `VideoStream.jsx` | Displays MJPEG video from ML service camera |
+| `ChartPanel.jsx` | Chart wrapper for historical data visualization |
+| `DetectionCard.jsx` | Shows YOLO fish detection results |
+| `Navbar.jsx` | Top navigation with links to all pages + notification bell |
+
+---
+
+## 6. Component 4: Python ML Service (The AI Brain)
+
+### 6.1 What it Does
+
+The ML service runs **4 AI models in parallel threads**, publishing predictions via MQTT:
+
+```mermaid
+graph TB
+    subgraph "ML Service (Python)"
+        WQ["Water Quality Loop<br>every 10 seconds"]
+        FD["Fish Disease Loop<br>continuous YOLO"]
+        FF["Fish Feeding Loop<br>every 10 seconds"]
+        FG["Fish Gas Loop<br>every 10 seconds"]
+    end
+    
+    MQTT["HiveMQ MQTT<br>Broker"]
+    
+    WQ -->|aquasense/ml/water-quality| MQTT
+    FD -->|aquasense/ml/fish-disease| MQTT
+    FF -->|aquasense/ml/fish-feeding| MQTT
+    FG -->|aquasense/ml/fish-gas| MQTT
+    
+    MQTT -->|aquasense/esp32/sensors| WQ
+    MQTT -->|aquasense/esp32/sensors| FF
+    MQTT -->|aquasense/esp32/sensors| FG
+```
+
+### 6.2 Entry Point
+
+**File:** [main.py](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/main.py)
+
+Startup sequence:
+1. Connect to HiveMQ MQTT broker
+2. Subscribe to `aquasense/esp32/sensors` to get live sensor data
+3. Start 4 prediction threads + command interface thread
+4. Start MJPEG stream server on port 8765
+
+### 6.3 ML Configuration
+
+**File:** [config.py](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/config.py)
+
+| Setting | Value | Purpose |
+|---------|-------|---------|
+| `MQTT_BROKER` | `broker.hivemq.com` | Same broker as backend + ESP32 |
+| `MQTT_PORT` | `1883` | Standard MQTT port |
+| `WQ_PREDICTION_INTERVAL` | `10 seconds` | Water quality prediction frequency |
+| `FF_PREDICTION_INTERVAL` | `10 seconds` | Fish feeding prediction frequency |
+| `GAS_PREDICTION_INTERVAL` | `10 seconds` | Gas detection frequency |
+| `DEFAULT_CAMERA` | `0` | Camera index (0 = laptop webcam) |
+| `STREAM_FPS` | `24` | MJPEG video stream target FPS |
+| `FD_CONFIDENCE_THRESHOLD` | `0.4` | YOLO minimum confidence to report |
+
+### 6.4 The 4 ML Models
+
+| Model | File | Input | Output | Model File |
+|-------|------|-------|--------|------------|
+| **Water Quality** | `water_quality.py` | temp, pH, turbidity, TDS + fixed DO, ammonia | Poor / Moderate / Good | `water_quality_model.pkl` |
+| **Fish Disease** | `fish_disease.py` | Camera frame (YOLO) | Disease type + bounding boxes | `best.pt` (YOLOv8) |
+| **Fish Feeding** | `fish_feeding.py` | CO2 sensor value | Full / Reduced / Skip Feeding | `fish_feeding_model.pkl` |
+| **Gas Safety** | `fish_gas.py` | pH, temp, CO2 + fixed defaults | Safe / Danger | `fish_gas_model.pkl` |
+
+### 6.5 How ML Gets Sensor Data
+
+The ML service subscribes to `aquasense/esp32/sensors` via MQTT. When a sensor reading arrives:
+1. Extracts `temperature`, `ph`, `turbidity`, `tds`, `co2`
+2. Stores in a shared `latest_sensor_data` dictionary (thread-safe with a lock)
+3. Each prediction loop reads from this dictionary when making predictions
+
+### 6.6 How to Start the ML Service
+
+```bash
+cd ml-service
+.venv\Scripts\activate     # Activate Python virtual environment
+python main.py             # Start all ML models
+```
+
+---
+
+## 7. The Complete Data Flow — End to End
+
+### 7.1 Sensor Reading Flow (Every 5 Seconds)
+
+```
+ESP32 reads sensors
+    ↓
+ESP32 publishes JSON to MQTT topic: aquasense/esp32/sensors
+    ↓
+HiveMQ broker broadcasts to all subscribers
+    ↓
+┌─────────────────────────┐    ┌─────────────────────────┐
+│ Node.js Backend          │    │ Python ML Service        │
+│                          │    │                          │
+│ mqtt.client.js receives  │    │ main.py receives         │
+│ → esp32.handler.js       │    │ → stores in memory       │
+│ → Save to MongoDB        │    │ → water_quality_loop()   │
+│ → io.emit('sensor-update')│   │ → fish_feeding_loop()    │
+│                          │    │ → fish_gas_loop()         │
+└──────────┬───────────────┘    └─────────────────────────┘
+           ↓
+    Socket.IO WebSocket
+           ↓
+    React Frontend
+    → SensorContext.jsx receives 'sensor-update'
+    → setSensorData({...data})
+    → All pages re-render with new values
+```
+
+### 7.2 Actuator Command Flow (User clicks button)
+
+```
+User clicks "Turn ON Pump" in Components page
+    ↓
+FeederControl/ActuatorControls component
+    → socketService.toggleActuator('oxygenPump', true)
+    ↓
+Socket.IO emits 'control' event to backend
+    ↓
+realtime.socket.js receives 'control' command
+    → esp32Publisher.toggleActuator('oxygenPump', true, {...})
+    ↓
+Backend publishes MQTT message to: aquasense/esp32/cmd/oxygenPump
+    → JSON: {"state": true}
+    ↓
+HiveMQ delivers to ESP32
+    ↓
+ESP32 mqttCallback() processes the command
+    → Checks water level safety (≥ 30%?)
+    → If safe: turns relay ON at GPIO 33
+    → Publishes back actuator status via MQTT
+    ↓
+Backend receives actuator status update
+    → io.emit('actuator-update', data)
+    ↓
+Frontend SensorContext receives 'actuator-update'
+    → UI updates to show pump is ON
+```
+
+### 7.3 ML Prediction Flow
+
+```
+ML Service  water_quality_loop() runs every 10 seconds
+    ↓
+Reads latest sensor data (stored from MQTT subscription)
+    → {temperature: 27.5, ph: 7.2, turbidity: 15, tds: 250}
+    ↓
+Adds fixed values:
+    → dissolved_oxygen: 5.30, ammonia: 0.048
+    ↓
+Runs through sklearn model:
+    → scaler.transform() → model.predict()
+    → Result: "Good" (confidence: 0.95)
+    ↓
+Publishes to MQTT: aquasense/ml/water-quality
+    → {"prediction": "Good", "confidence": 0.95, ...}
+    ↓
+Backend ml.handler.js receives prediction
+    → Saves to MongoDB (WaterQualityPrediction)
+    → io.emit('water-quality-prediction', data)
+    ↓
+Frontend receives via Socket.IO
+    → Water.jsx displays "Water Quality: Good ✅"
+```
+
+---
+
+## 8. Configuration Files Quick Reference
+
+### 8.1 Backend `.env`
+
+**Path:** `backend/.env`
+
+```env
+PORT=5000
+MONGO_URI=mongodb://aquasense360:aqua@...mongodb.net/aquasense360
+MQTT_URL=mqtt://broker.hivemq.com:1883
+FRONTEND_URL=http://192.168.43.118:3000
+```
+
+### 8.2 Frontend `.env`
+
+**Path:** `frontend/.env`
+
+```env
+REACT_APP_API_URL=http://192.168.43.118:5000/api
+REACT_APP_SOCKET_URL=http://192.168.43.118:5000
+REACT_APP_ML_STREAM_URL=http://192.168.43.118:8765/video_feed
+```
+
+> [!CAUTION]
+> **When you change laptops or WiFi networks**, you MUST update the IP address `192.168.43.118` in BOTH `.env` files to match the new laptop's IPv4 address. Run `ipconfig` to find it.
+
+### 8.3 ESP32 WiFi/MQTT Settings
+
+**Path:** `esp32/AquaSense360_ESP32.ino` (lines 54-66)
+
+```cpp
+const char* WIFI_SSID = "oshan";
+const char* WIFI_PASS = "oshanuoj";
+const char* MQTT_SERVER = "broker.hivemq.com";
+const int   MQTT_PORT = 1883;
+```
+
+> [!WARNING]
+> If you change your phone hotspot name or password, you must update these in the Arduino code and re-upload to the ESP32.
+
+---
+
+## 9. How to Start the System
+
+### Terminal 1: Backend + Frontend
+```bash
+cd c:\Users\Oshan\Pictures\auqa360
+npm start
+```
+This runs `concurrently` which starts:
+- `node backend/src/server.js` → Port 5000
+- `react-scripts start` → Port 3000
+
+### Terminal 2: ML Service (Optional)
+```bash
+cd c:\Users\Oshan\Pictures\auqa360\ml-service
+.venv\Scripts\activate
+python main.py
+```
+
+### What You Should See in Terminal 1
+
+```
+[backend] ✅ MongoDB connected
+[backend] 📡 Connecting to MQTT broker: mqtt://broker.hivemq.com:1883
+[backend] ✅ MQTT connected to broker
+[backend]    📥 Subscribed: aquasense/esp32/sensors
+[backend] 🚀 AquaSense360 Backend running on port 5000
+[frontend] Compiled successfully!
+```
+
+Every 5 seconds (when ESP32 is on):
+```
+[backend] 📨 MQTT [aquasense/esp32/sensors]: {"temperature":27.5,...}
+[backend] 📊 Received sensor data: {...}
+[backend] 💾 Sensor data saved to MongoDB
+[backend] 📡 Sensor data emitted to frontend
+```
+
+---
+
+## 10. Troubleshooting Guide
+
+### ❌ "Sensor data not showing in frontend"
+
+**Check these in order:**
+
+1. **Is the backend running?** → Check terminal for `🚀 Backend running on port 5000`
+2. **Is MQTT connected?** → Look for `✅ MQTT connected to broker`
+3. **Is ESP32 sending data?** → Look for `📨 MQTT [aquasense/esp32/sensors]` logs
+4. **Is Socket.IO connected?** → Open browser console (F12), look for `Socket connected:`
+5. **Are IPs correct?** → Compare `frontend/.env` IP with `ipconfig` output
+
+### ❌ "ML predictions show 'Waiting...'"
+
+1. Is the ML service running? (`python main.py` in Terminal 2)
+2. Check ML terminal for errors
+3. API timeout (normal if ML not started) — sensor data still works without ML
+
+### ❌ "ESP32 not connecting"
+
+1. Is your phone hotspot ON with SSID `oshan`?
+2. Is ESP32 powered on?
+3. Check ESP32 Serial Monitor (Arduino IDE, 115200 baud)
+
+### ❌ "MongoDB connection failed"
+
+- This is okay — the system works without MongoDB
+- Historical data and reports won't work, but live sensor data still flows
+- Check if you have internet access (MongoDB Atlas is cloud-based)
+
+### ❌ "CORS error in browser console"
+
+- Update `FRONTEND_URL` in `backend/.env` to match your current IP
+- The CORS config already allows any `192.168.x.x` address, so this is unlikely
+
+### ❌ "After changing laptop/WiFi, nothing works"
+
+1. Run `ipconfig` → get new IPv4 address
+2. Update `backend/.env`: `FRONTEND_URL=http://<NEW_IP>:3000`
+3. Update `frontend/.env`: both API and SOCKET URLs with new IP
+4. Restart both backend and frontend (`npm start`)
+
+---
+
+## 11. Key Concepts Summary
+
+| Concept | Technology | Where it Lives |
+|---------|-----------|---------------|
+| **Sensor data collection** | Arduino C++ | `esp32/AquaSense360_ESP32.ino` |
+| **Message broker** | HiveMQ (public MQTT) | Cloud — `broker.hivemq.com:1883` |
+| **Database** | MongoDB Atlas (cloud) | Cloud — configured in `backend/.env` |
+| **REST API** | Express.js | `backend/src/routes/` + `controllers/` |
+| **Real-time updates** | Socket.IO | `backend/src/sockets/` + `frontend/src/services/socket.js` |
+| **Global state** | React Context API | `frontend/src/contexts/SensorContext.jsx` |
+| **AI predictions** | scikit-learn + YOLO | `ml-service/*.py` |
+| **Actuator control** | MQTT commands | `backend → MQTT → ESP32` |
+| **Alert system** | Rules engine + toast | `backend/services/rules.service.js` + `NotificationBell.jsx` |

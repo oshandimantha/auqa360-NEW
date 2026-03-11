@@ -137,7 +137,7 @@ const esp32Handler = {
             // Alert if motion detected
             if (data.motion || data.pir) {
                 io.emit('alert', {
-                    type: 'info',
+                    type: 'warning',
                     source: 'pir',
                     message: 'Motion detected near fish tank',
                     timestamp: new Date()

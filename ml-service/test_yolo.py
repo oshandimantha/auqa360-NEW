@@ -1,26 +1,14 @@
-"""
-AquaSense360 — YOLO Model Test Script
-Opens your camera and runs the fish disease YOLO model in a live window.
-Press 'Q' to quit, 'S' to save a screenshot, 'C' to cycle cameras (0-4).
-
-Usage:
-    python test_yolo.py              # Use default camera (0)
-    python test_yolo.py 1            # Use camera index 1
-    python test_yolo.py http://...   # Use IP camera URL
-"""
 import cv2
 import sys
 import time
 import os
 
-# ─── Configuration ───
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "best.pt")
 CONFIDENCE = 0.5
 WINDOW_NAME = "YOLO Fish Disease Detection Test"
 
-
 def main():
-    # ─── Load model ───
+
     print("=" * 60)
     print("  🧪 YOLO Fish Disease Detection — Test Script")
     print("=" * 60)
@@ -41,7 +29,6 @@ def main():
     print(f"✅ Model loaded — classes: {model.names}")
     print()
 
-    # ─── Open camera ───
     source = 0
     if len(sys.argv) > 1:
         arg = sys.argv[1]
@@ -82,12 +69,10 @@ def main():
             time.sleep(0.5)
             continue
 
-        # ─── Run YOLO inference ───
         t0 = time.time()
         results = model(frame, conf=CONFIDENCE, verbose=False)
         inference_ms = (time.time() - t0) * 1000
 
-        # ─── Parse detections ───
         detections = []
         for result in results:
             boxes = result.boxes
@@ -102,10 +87,8 @@ def main():
                         "cls_id": cls_id
                     })
 
-        # ─── Draw annotated frame ───
         annotated = results[0].plot() if results else frame
 
-        # ─── Calculate FPS ───
         frame_count += 1
         elapsed = time.time() - fps_start
         if elapsed >= 1.0:
@@ -113,7 +96,6 @@ def main():
             frame_count = 0
             fps_start = time.time()
 
-        # ─── Draw info overlay ───
         info_lines = [
             f"FPS: {fps:.1f}  |  Inference: {inference_ms:.0f}ms",
             f"Detections: {len(detections)}",
@@ -124,13 +106,12 @@ def main():
 
         y_offset = 30
         for line in info_lines:
-            # Black background for readability
+
             (tw, th), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
             cv2.rectangle(annotated, (8, y_offset - th - 4), (16 + tw, y_offset + 4), (0, 0, 0), -1)
             cv2.putText(annotated, line, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
             y_offset += 24
 
-        # ─── Status bar at bottom ───
         h_frame, w_frame = annotated.shape[:2]
         status_color = (0, 0, 255) if detections else (0, 200, 0)
         status_text = "DISEASE DETECTED" if detections else "HEALTHY — No disease"
@@ -138,15 +119,12 @@ def main():
         cv2.putText(annotated, status_text, (10, h_frame - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-        # ─── Print to console on detections ───
         if detections:
             classes = ", ".join([f"{d['class']} ({d['confidence']}%)" for d in detections])
             print(f"🔴 DETECTED: {classes}  [{inference_ms:.0f}ms]")
 
-        # ─── Show window ───
         cv2.imshow(WINDOW_NAME, annotated)
 
-        # ─── Handle keypresses ───
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord('q') or key == ord('Q'):
@@ -160,7 +138,7 @@ def main():
             print(f"📸 Screenshot saved: {filename}")
 
         elif key == ord('c') or key == ord('C'):
-            # Cycle cameras
+
             cap.release()
             current_cam = (current_cam + 1) % 5
             print(f"📷 Switching to camera {current_cam}...")
@@ -177,11 +155,10 @@ def main():
                     print("   ❌ No cameras available!")
                     break
 
-    # ─── Cleanup ───
     cap.release()
     cv2.destroyAllWindows()
     print("✅ Test complete")
 
-
 if __name__ == "__main__":
     main()
+

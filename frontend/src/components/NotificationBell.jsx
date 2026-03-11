@@ -197,6 +197,7 @@ const NotificationBell = () => {
                         </span>
                         <div className="toast-body">
                             <p className="toast-message">{currentToast.message}</p>
+                            <span className="toast-time">{formatRelativeTime(currentToast.time)}</span>
                         </div>
                         <span className="toast-close">✕</span>
                     </div>
@@ -414,6 +415,13 @@ const NotificationBell = () => {
                     font-weight: 500;
                     margin: 0;
                     line-height: 1.3;
+                }
+
+                .toast-time {
+                    font-size: 0.7rem;
+                    opacity: 0.8;
+                    margin-top: 2px;
+                    display: block;
                 }
 
                 .toast-close {

@@ -24,18 +24,27 @@ const Water = () => {
     // AI Water Quality Prediction state
     const [wqPrediction, setWqPrediction] = useState(null);
 
+    const isStale = (timestamp) => {
+        if (!timestamp) return true;
+        const ageMs = Date.now() - new Date(timestamp).getTime();
+        return ageMs > 2 * 60 * 1000; // older than 2 minutes = stale
+    };
+
     useEffect(() => {
         // Prevent double-fetch in strict mode
         if (fetchedRef.current) return;
         fetchedRef.current = true;
 
         // Fetch latest water quality prediction from API on mount
+        // Only use it if it's fresh (< 2 min old), otherwise wait for live MQTT
         const fetchLatestPrediction = async () => {
             try {
                 const data = await getLatestWaterQualityPrediction();
-                if (data && data.prediction) {
+                if (data && data.prediction && !isStale(data.timestamp)) {
                     setWqPrediction(data);
-                    console.log('Loaded WQ prediction from API:', data.prediction);
+                    console.log('Loaded fresh WQ prediction from API:', data.prediction);
+                } else if (data && data.prediction) {
+                    console.log('WQ prediction is stale — waiting for live data');
                 }
             } catch (error) {
                 console.warn('Could not fetch latest prediction:', error);
@@ -146,7 +155,10 @@ const Water = () => {
                             </div>
                         ) : (
                             <p style={{ color: 'var(--color-gray-400)', fontSize: '0.9rem' }}>
-                                ⏳ Waiting for ML service prediction...
+                                ⏳ Waiting for live sensor data...
+                                <span style={{ display: 'block', fontSize: '0.8rem', marginTop: '4px', color: 'var(--color-gray-500)' }}>
+                                    Predictions resume when ESP32 is online
+                                </span>
                             </p>
                         )}
                     </div>
@@ -183,18 +195,22 @@ const Water = () => {
                     <SensorCard
                         sensorType="temperature"
                         value={sensorData.temperature}
+                        timestamp={sensorData.lastSensorUpdate}
                     />
                     <SensorCard
                         sensorType="ph"
                         value={sensorData.ph}
+                        timestamp={sensorData.lastSensorUpdate}
                     />
                     <SensorCard
                         sensorType="turbidity"
                         value={sensorData.turbidity}
+                        timestamp={sensorData.lastSensorUpdate}
                     />
                     <SensorCard
                         sensorType="tds"
                         value={sensorData.tds}
+                        timestamp={sensorData.lastSensorUpdate}
                     />
                 </div>
             </section>
