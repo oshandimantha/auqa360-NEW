@@ -88,6 +88,9 @@ const Navbar = () => {
                     <Link to="/components" className={`nav-link ${isActive('/components') ? 'active' : ''}`}>
                         Controls
                     </Link>
+                    <Link to="/security" className={`nav-link ${isActive('/security') ? 'active' : ''}`}>
+                        🛡️ Security
+                    </Link>
                 </nav>
                 <NotificationBell />
             </div>

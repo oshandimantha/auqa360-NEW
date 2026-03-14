@@ -49,7 +49,8 @@ const TOPICS = {
         WATER_QUALITY: 'aquasense/ml/water-quality', // Water quality predictions
         FISH_DISEASE: 'aquasense/ml/fish-disease',   // Fish disease detections
         FISH_FEEDING: 'aquasense/ml/fish-feeding',   // Fish feeding predictions
-        FISH_GAS: 'aquasense/ml/fish-gas',             // Fish gas detection
+        FISH_GAS: 'aquasense/ml/fish-gas',           // Fish gas detection
+        SECURITY: 'aquasense/ml/security',           // Human/animal security detection
         STATUS: 'aquasense/ml/status',               // ML service online/offline
     },
 
@@ -81,6 +82,7 @@ const SUBSCRIBE_TOPICS = [
     TOPICS.ML.FISH_DISEASE,
     TOPICS.ML.FISH_FEEDING,
     TOPICS.ML.FISH_GAS,
+    TOPICS.ML.SECURITY,
     TOPICS.ML.STATUS,
 ];
 

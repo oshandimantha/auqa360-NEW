@@ -10,9 +10,10 @@ import {
     Legend,
     Filler
 } from 'chart.js';
+import zoomPlugin from 'chartjs-plugin-zoom';
 import { Line } from 'react-chartjs-2';
 import { CHART_COLORS } from '../utils/thresholds';
-import { formatChartTime } from '../utils/format';
+import { formatChartLabel } from '../utils/format';
 
 // Register Chart.js components
 ChartJS.register(
@@ -23,7 +24,8 @@ ChartJS.register(
     Title,
     Tooltip,
     Legend,
-    Filler
+    Filler,
+    zoomPlugin
 );
 
 const ChartPanel = ({
@@ -31,13 +33,14 @@ const ChartPanel = ({
     datasets = [],
     labels = [],
     height = 300,
-    showLegend = true
+    showLegend = true,
+    period = 'daily'
 }) => {
     const chartRef = useRef(null);
 
     // Build chart datasets
     const chartData = {
-        labels: labels.map(l => formatChartTime(l)),
+        labels: labels.map(l => formatChartLabel(l, period)),
         datasets: datasets.map((ds, index) => {
             const colors = CHART_COLORS[ds.sensorType] || {
                 line: `hsl(${index * 60}, 70%, 50%)`,
@@ -98,6 +101,20 @@ const ChartPanel = ({
                     family: 'Inter, sans-serif',
                     size: 12
                 }
+            },
+            zoom: {
+                zoom: {
+                    wheel: { enabled: true },
+                    pinch: { enabled: true },
+                    mode: 'x'
+                },
+                pan: {
+                    enabled: true,
+                    mode: 'x'
+                },
+                limits: {
+                    x: { minRange: 2 }
+                }
             }
         },
         scales: {
@@ -112,7 +129,8 @@ const ChartPanel = ({
                         family: 'Inter, sans-serif',
                         size: 11
                     },
-                    maxRotation: 0
+                    maxRotation: 30,
+                    maxTicksLimit: period === 'daily' ? 12 : period === 'weekly' ? 14 : 15
                 }
             },
             y: {
@@ -134,11 +152,38 @@ const ChartPanel = ({
         }
     };
 
+    const handleResetZoom = () => {
+        if (chartRef.current) {
+            chartRef.current.resetZoom();
+        }
+    };
+
     return (
         <div className="chart-container">
-            <div className="chart-header">
+            <div className="chart-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <h3 className="chart-title">{title}</h3>
+                <button
+                    onClick={handleResetZoom}
+                    title="Reset Zoom"
+                    style={{
+                        background: 'rgba(10, 147, 150, 0.15)',
+                        border: '1px solid rgba(10, 147, 150, 0.4)',
+                        borderRadius: '6px',
+                        color: '#0a9396',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem',
+                        padding: '4px 10px',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseOver={e => e.currentTarget.style.background = 'rgba(10, 147, 150, 0.3)'}
+                    onMouseOut={e => e.currentTarget.style.background = 'rgba(10, 147, 150, 0.15)'}
+                >
+                    ↺ Reset Zoom
+                </button>
             </div>
+            <p style={{ margin: '2px 0 8px', fontSize: '0.7rem', color: '#5a5a7a' }}>
+                🖱️ Drag to pan • Scroll wheel to zoom
+            </p>
             <div className="chart-wrapper" style={{ height }}>
                 <Line ref={chartRef} data={chartData} options={options} />
             </div>

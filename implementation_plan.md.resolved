@@ -1,0 +1,100 @@
+# YOLO Human/Animal Security Detection System
+
+Add a real-time YOLO-based security detector that uses a **dedicated USB camera** (auto-assigned, different from the fish disease camera), streams at stable FPS using the same technique as fish disease, and triggers popup notifications — with a new **AI Security** page in the frontend.
+
+## Proposed Changes
+
+---
+
+### ML Service
+
+#### [NEW] `security_detector.py`
+- Reuses the exact same classes from [fish_disease.py](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/fish_disease.py): [ThreadedCamera](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/fish_disease.py#8-73), [DetectionOverlay](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/fish_disease.py#74-173), [StreamCompositor](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/fish_disease.py#174-230)
+- Loads **YOLOv8n** (the standard pretrained nano model — detects 80 COCO classes including `person`, [cat](file:///c:/Users/Oshan/Pictures/auqa360/frontend/src/components/NotificationBell.jsx#9-449), `dog`, `bird`, etc.)
+- Model file: `ml-service/models/yolov8n.pt` (auto-downloaded by ultralytics on first run)
+- Same stable FPS pipeline: threaded camera capture → inference thread → compositor → MJPEG stream
+- Detects: `person`, [cat](file:///c:/Users/Oshan/Pictures/auqa360/frontend/src/components/NotificationBell.jsx#9-449), `dog`, `bird`, `horse`, `cow`, `sheep`, `bear`, `elephant`, `zebra`, `giraffe`
+- Publishes MQTT: `aquasense/ml/security` with detections, confidence, class names
+- MJPEG stream on **port 8766** (separate from fish disease on 8765)
+
+#### [MODIFY] [config.py](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/config.py)
+- Add `SECURITY_MODEL_PATH` → `models/yolov8n.pt`
+- Add `SECURITY_CONFIDENCE_THRESHOLD = 0.45`
+- Add `TOPIC_SECURITY = "aquasense/ml/security"`
+- Add `SECURITY_CAMERA = -1` (auto-assign: pick the first camera NOT used by fish disease)
+- Add `SECURITY_STREAM_PORT = 8766`
+
+#### [MODIFY] [main.py](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/main.py)
+- Import and instantiate `SecurityDetector`
+- Auto camera assignment logic: scan cameras, give fish disease cam index 0, give security next available (e.g. index 1)
+- Add `security_loop()` — same structure as [fish_disease_loop()](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/main.py#171-226), publishes to `TOPIC_SECURITY` every frame (throttled to 0.33s MQTT interval)
+- Start `security_stream_server` on port 8766
+- Add `security` commands to command interface: `security start/stop`, `security camera <index>`
+- Publish security model status in [on_mqtt_connect](file:///c:/Users/Oshan/Pictures/auqa360/ml-service/main.py#37-65)
+- Subscribe to `aquasense/ml/cmd/security` for start/stop/camera commands
+
+---
+
+### Backend
+
+#### [MODIFY] [backend/src/mqtt/mqtt.topics.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/mqtt/mqtt.topics.js)
+- Add `TOPICS.ML.SECURITY = 'aquasense/ml/security'`
+- Subscribe to it in the topics subscription list
+
+#### [MODIFY] [backend/src/mqtt/handlers/ml.handler.js](file:///c:/Users/Oshan/Pictures/auqa360/backend/src/mqtt/handlers/ml.handler.js) (or equivalent)
+- Handle `aquasense/ml/security` topic
+- Forward to frontend via `io.emit('security-update', data)`
+- If person/animal detected: `io.emit('alert', { type: 'warning', source: 'security', message: 'Person/animal detected near fish tank!', ... })`
+
+---
+
+### Frontend
+
+#### [NEW] `frontend/src/pages/Security.jsx`
+- New page at route `/security`
+- Live MJPEG stream from `http://localhost:8766/video_feed` (same `<img>` tag method as Fish page)
+- Detection info panel: detected objects list (class + confidence), last detection time
+- Camera status indicator (online/offline)
+- Receives `security-update` socket events to update detection data in real-time
+- Shows toast popup for every human/animal detection (via existing alert system)
+
+#### [MODIFY] [frontend/src/App.js](file:///c:/Users/Oshan/Pictures/auqa360/frontend/src/App.js)
+- Lazy-import `Security` page
+- Add route: `<Route path="/security" element={<Security />} />`
+
+#### [MODIFY] [frontend/src/components/Navbar.jsx](file:///c:/Users/Oshan/Pictures/auqa360/frontend/src/components/Navbar.jsx)
+- Add **Security** nav link with 🛡️ icon
+
+#### [MODIFY] [frontend/src/components/NotificationBell.jsx](file:///c:/Users/Oshan/Pictures/auqa360/frontend/src/components/NotificationBell.jsx)
+- Add `source === 'security'` icon: `🛡️`
+
+---
+
+### Auto Camera Assignment Logic
+
+```
+1. Scan all cameras (index 0–5) on startup
+2. Fish disease gets: first available camera (e.g. index 0)
+3. Security gets: second available camera (e.g. index 1)
+4. If only 1 camera found → security detector is disabled with a warning
+5. If 0 cameras → both disabled
+```
+
+---
+
+## Verification Plan
+
+### Manual Test Steps
+
+1. **Plug in 2 USB cameras** before starting the ML service
+2. Run `python main.py` in `ml-service/`
+3. Check console output shows:
+   - `✅ Camera 0: ... (fish disease)`
+   - `✅ Camera 1: ... (security)`
+4. Open browser → `http://localhost:8766/video_feed` — should show live security camera stream with bounding boxes
+5. Walk in front of the security camera → check:
+   - Terminal prints `🛡️ Security: person detected`
+   - Frontend `/security` page updates with detection info
+   - **Orange warning toast popup** appears in the top-right corner saying "Person detected near fish tank!"
+   - Notification bell shows the alert with 🛡️ icon
+6. If only 1 camera: ML service should warn and disable security, fish disease still works normally

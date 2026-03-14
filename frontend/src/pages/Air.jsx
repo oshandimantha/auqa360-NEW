@@ -7,7 +7,8 @@ import { useSensorContext } from '../contexts/SensorContext';
 import { getHistoricalData, getLatestFishGas } from '../services/api';
 
 const Air = () => {
-    const { sensorData } = useSensorContext();
+    const { sensorData, systemStatus } = useSensorContext();
+    const esp32Online = !!(systemStatus?.esp32?.connected);
     const [gasDetection, setGasDetection] = useState(null);
 
     const [chartData, setChartData] = useState({
@@ -90,11 +91,20 @@ const Air = () => {
             <section className="sensor-overview">
                 <h3 style={{ marginBottom: 'var(--spacing-lg)' }}>Real-time Air Quality Status</h3>
                 <div className="sensor-grid">
-                    <SensorCard
-                        sensorType="co2"
-                        value={sensorData.co2}
-                        timestamp={sensorData.lastSensorUpdate}
-                    />
+                    {esp32Online ? (
+                        <SensorCard
+                            sensorType="co2"
+                            value={sensorData.co2}
+                            timestamp={sensorData.lastSensorUpdate}
+                        />
+                    ) : (
+                        <div className="sensor-card">
+                            <div className="sensor-icon">💨</div>
+                            <div className="sensor-label">CO2</div>
+                            <div className="sensor-value" style={{ fontSize: '2rem', color: 'var(--color-gray-600)' }}>--</div>
+                            <div style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--color-danger)' }}>📡 ESP32 Offline</div>
+                        </div>
+                    )}
                 </div>
             </section>
 
@@ -121,12 +131,16 @@ const Air = () => {
                     }}>ML Model</span>
                 </h3>
 
-                {gasDetection ? (
+                {!esp32Online ? (
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-lg)', color: 'var(--color-danger)' }}>
+                        📡 ESP32 Offline — AI gas detection paused
+                        <p style={{ fontSize: '0.8rem', marginTop: '8px', color: 'var(--color-gray-500)' }}>
+                            Predictions will resume when the ESP32 reconnects
+                        </p>
+                    </div>
+                ) : gasDetection ? (
                     <div style={{ textAlign: 'center' }}>
-                        <div style={{
-                            fontSize: '3rem',
-                            marginBottom: '4px'
-                        }}>
+                        <div style={{ fontSize: '3rem', marginBottom: '4px' }}>
                             {gasDetection.gasLevel === 0 ? '🟢' : '🔴'}
                         </div>
                         <div style={{
@@ -136,11 +150,7 @@ const Air = () => {
                         }}>
                             {gasDetection.gasLabel}
                         </div>
-                        <div style={{
-                            fontSize: '0.85rem',
-                            color: 'var(--color-gray-400)',
-                            marginTop: '4px'
-                        }}>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--color-gray-400)', marginTop: '4px' }}>
                             {gasDetection.confidence}% confidence
                         </div>
                     </div>

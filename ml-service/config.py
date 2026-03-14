@@ -42,3 +42,9 @@ STREAM_FPS = int(os.getenv("STREAM_FPS", 24))
 YOLO_INPUT_SIZE = int(os.getenv("YOLO_SIZE", 416))
 OVERLAY_PERSISTENCE = float(os.getenv("OVERLAY_PERSIST", 2.0))
 
+# Security detector (human/animal detection)
+SECURITY_MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "yolov8n.pt")
+SECURITY_CONFIDENCE_THRESHOLD = float(os.getenv("SECURITY_CONFIDENCE", 0.45))
+TOPIC_SECURITY = "aquasense/ml/security"
+SECURITY_STREAM_PORT = int(os.getenv("SECURITY_STREAM_PORT", 8766))
+

@@ -22,6 +22,8 @@ const mlHandler = {
                 await this.handleFishFeeding(payload, io);
             } else if (topic === TOPICS.ML.FISH_GAS) {
                 await this.handleFishGas(payload, io);
+            } else if (topic === TOPICS.ML.SECURITY) {
+                await this.handleSecurity(payload, io);
             } else if (topic === TOPICS.ML.STATUS) {
                 await this.handleStatus(payload, io);
             }
@@ -192,6 +194,68 @@ const mlHandler = {
             io.emit('fish-feeding-prediction', feedingData);
         }
     },
+
+    /**
+     * Handle human/animal security detection from ML service
+     */
+    async handleSecurity(data, io) {
+        if (data.detectionCount > 0) {
+            const classes = (data.detectedClasses || []).join(', ');
+            console.log(`🛡️ Security detection: ${classes} (${data.detectionCount} object(s))`);
+        }
+
+        if (io) {
+            io.emit('security-update', {
+                personDetected: data.personDetected || false,
+                animalDetected: data.animalDetected || false,
+                detections: data.detections || [],
+                detectedClasses: data.detectedClasses || [],
+                detectionCount: data.detectionCount || 0,
+                maxConfidence: data.maxConfidence || 0,
+                cameraSource: data.cameraSource,
+                inferenceMs: data.inferenceMs || 0,
+                timestamp: data.timestamp || new Date()
+            });
+
+            // Alert when person or animal is detected — one alert per unique class
+            if (data.personDetected || data.animalDetected) {
+                const detections = data.detections || [];
+                const seenClasses = new Set();
+
+                detections.forEach(d => {
+                    const cls = (d.class || '').toLowerCase();
+                    if (seenClasses.has(cls)) return;   // skip duplicates within same frame
+                    seenClasses.add(cls);
+
+                    const isHuman = cls === 'person' || cls === 'human';
+                    const confidence = d.confidence ? Math.round(d.confidence) : (data.maxConfidence || 0);
+
+                    io.emit('alert', {
+                        type: isHuman ? 'danger' : 'warning',
+                        source: 'security',
+                        sensor: `security-${cls}`,      // unique key for dedup in bell
+                        message: isHuman
+                            ? `🧍 Human Detected near fish tank! (${confidence}% confidence)`
+                            : `🐾 Animal Detected: ${cls.charAt(0).toUpperCase() + cls.slice(1)} near fish tank! (${confidence}% confidence)`,
+                        timestamp: new Date()
+                    });
+                });
+
+                // Fallback: if no per-class detections, emit a generic alert
+                if (seenClasses.size === 0) {
+                    const who = data.personDetected ? '🧍 Human' : '🐾 Animal';
+                    io.emit('alert', {
+                        type: data.personDetected ? 'danger' : 'warning',
+                        source: 'security',
+                        sensor: 'security-unknown',
+                        message: `${who} Detected near fish tank!`,
+                        timestamp: new Date()
+                    });
+                }
+            }
+        }
+    },
+
     /**
      * Handle fish gas detection from ML service
      */
@@ -243,7 +307,6 @@ const mlHandler = {
         }
 
         if (io) {
-            // Emit laptop/device status (frontend listens for device === 'laptop')
             io.emit('device-status', {
                 device: 'laptop',
                 online: isOnline,
@@ -252,11 +315,11 @@ const mlHandler = {
                 timestamp: data.timestamp || new Date()
             });
 
-            // Emit YOLO model status (frontend listens for 'model-status')
             io.emit('model-status', {
                 running: isOnline && data.models?.fishDisease,
                 modelLoaded: data.models?.fishDisease || false,
                 waterQualityLoaded: data.models?.waterQuality || false,
+                securityLoaded: data.models?.security || false,
                 timestamp: data.timestamp || new Date()
             });
         }

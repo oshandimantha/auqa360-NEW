@@ -38,6 +38,9 @@ const esp32Handler = {
         try {
             const mongoose = require('mongoose');
             if (mongoose.connection.readyState === 1) {
+                // Use server time — ESP32 RTC often sends invalid timestamps (e.g. '2165-165-165T37:165:85')
+                const safeTimestamp = new Date();
+
                 const reading = new SensorReading({
                     temperature: data.temperature,
                     ph: data.ph,
@@ -46,7 +49,7 @@ const esp32Handler = {
                     co2: data.co2,
                     waterLevel: data.waterLevel,
                     pir: data.pir,
-                    timestamp: data.timestamp || new Date()
+                    timestamp: safeTimestamp
                 });
                 await reading.save();
                 console.log('💾 Sensor data saved to MongoDB');
@@ -137,9 +140,10 @@ const esp32Handler = {
             // Alert if motion detected
             if (data.motion || data.pir) {
                 io.emit('alert', {
-                    type: 'warning',
+                    type: 'danger',
                     source: 'pir',
-                    message: 'Motion detected near fish tank',
+                    sensor: 'pir',
+                    message: '🚨 Motion Detected! Movement detected near the fish tank.',
                     timestamp: new Date()
                 });
             }

@@ -57,12 +57,38 @@ sensorReadingSchema.statics.getHistory = function (startDate, endDate, limit = 1
 
 // Static method to get aggregated data
 sensorReadingSchema.statics.getAggregated = function (startDate, endDate, interval = 'hour') {
-    const groupBy = {
-        hour: { $hour: '$timestamp' },
-        day: { $dayOfMonth: '$timestamp' },
-        week: { $week: '$timestamp' },
-        month: { $month: '$timestamp' }
-    };
+    // Build groupId that produces a sortable, readable timestamp string
+    let groupId;
+    let dateFormat;
+
+    if (interval === 'hour') {
+        // Group by year+month+day+hour -> "2026-03-14 14:00"
+        groupId = {
+            year: { $year: '$timestamp' },
+            month: { $month: '$timestamp' },
+            day: { $dayOfMonth: '$timestamp' },
+            hour: { $hour: '$timestamp' }
+        };
+        dateFormat = {
+            $dateToString: {
+                format: '%Y-%m-%d %H:00',
+                date: '$firstTs'
+            }
+        };
+    } else {
+        // Group by year+month+day -> "2026-03-14"
+        groupId = {
+            year: { $year: '$timestamp' },
+            month: { $month: '$timestamp' },
+            day: { $dayOfMonth: '$timestamp' }
+        };
+        dateFormat = {
+            $dateToString: {
+                format: '%Y-%m-%d',
+                date: '$firstTs'
+            }
+        };
+    }
 
     return this.aggregate([
         {
@@ -72,7 +98,8 @@ sensorReadingSchema.statics.getAggregated = function (startDate, endDate, interv
         },
         {
             $group: {
-                _id: groupBy[interval] || groupBy.hour,
+                _id: groupId,
+                firstTs: { $min: '$timestamp' },
                 avgTemperature: { $avg: '$temperature' },
                 avgPh: { $avg: '$ph' },
                 avgTurbidity: { $avg: '$turbidity' },
@@ -82,7 +109,20 @@ sensorReadingSchema.statics.getAggregated = function (startDate, endDate, interv
                 count: { $sum: 1 }
             }
         },
-        { $sort: { _id: 1 } }
+        { $sort: { firstTs: 1 } },
+        {
+            $project: {
+                _id: 0,
+                timestamp: dateFormat,
+                avgTemperature: { $round: ['$avgTemperature', 2] },
+                avgPh: { $round: ['$avgPh', 2] },
+                avgTurbidity: { $round: ['$avgTurbidity', 2] },
+                avgTds: { $round: ['$avgTds', 2] },
+                avgCo2: { $round: ['$avgCo2', 2] },
+                avgWaterLevel: { $round: ['$avgWaterLevel', 2] },
+                count: 1
+            }
+        }
     ]);
 };
 

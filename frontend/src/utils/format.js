@@ -34,7 +34,7 @@ export const formatDate = (timestamp) => {
     });
 };
 
-// Format timestamp for chart labels
+// Format timestamp for chart labels (legacy — time only)
 export const formatChartTime = (timestamp) => {
     if (!timestamp) return '';
 
@@ -43,6 +43,41 @@ export const formatChartTime = (timestamp) => {
         hour: '2-digit',
         minute: '2-digit',
         hour12: false
+    });
+};
+
+// Format chart label based on period:
+// daily   -> "14:00"
+// weekly  -> "Sat 14:00"
+// monthly -> "Mar 14"
+export const formatChartLabel = (timestamp, period = 'daily') => {
+    if (!timestamp) return '';
+
+    // Handle both ISO strings and Date objects
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return String(timestamp);
+
+    if (period === 'daily') {
+        return date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+    }
+
+    if (period === 'weekly') {
+        return date.toLocaleDateString('en-US', {
+            weekday: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            hour12: false
+        }).replace(',', '');
+    }
+
+    // monthly
+    return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric'
     });
 };
 

@@ -12,6 +12,7 @@ const Water = React.lazy(() => import('./pages/Water'));
 const Air = React.lazy(() => import('./pages/Air'));
 const Components = React.lazy(() => import('./pages/Components'));
 const Reports = React.lazy(() => import('./pages/Reports'));
+const Security = React.lazy(() => import('./pages/Security'));
 
 function App() {
   // Connect to WebSocket when app starts
@@ -39,6 +40,7 @@ function App() {
                 <Route path="/air" element={<Air />} />
                 <Route path="/components" element={<Components />} />
                 <Route path="/reports" element={<Reports />} />
+                <Route path="/security" element={<Security />} />
               </Routes>
             </Suspense>
           </main>

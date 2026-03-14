@@ -1,149 +1,130 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import ChartPanel from '../components/ChartPanel';
 import socketService from '../services/socket';
-import { useSensorContext } from '../contexts/SensorContext';
-import { getHistoricalData } from '../services/api';
+import { getHistoricalData, getSensorData } from '../services/api';
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+const avg = (arr) => {
+    const valid = arr.filter(v => v !== null && v !== undefined && !isNaN(v));
+    return valid.length > 0 ? (valid.reduce((a, b) => a + b, 0) / valid.length).toFixed(1) : null;
+};
+
+const sensorFields = [
+    { key: 'temperature', label: 'Temperature', icon: '🌡️', unit: '°C' },
+    { key: 'ph', label: 'pH Level', icon: '🧪', unit: '' },
+    { key: 'turbidity', label: 'Turbidity', icon: '🌊', unit: ' NTU' },
+    { key: 'tds', label: 'TDS', icon: '💧', unit: ' ppm' },
+    { key: 'co2', label: 'CO₂', icon: '🌿', unit: ' ppm' },
+    { key: 'waterLevel', label: 'Water Level', icon: '📏', unit: ' cm' },
+];
+
+// ─── component ───────────────────────────────────────────────────────────────
 
 const Reports = () => {
-    const { sensorData } = useSensorContext();
-
     const [activePeriod, setActivePeriod] = useState('daily');
-    const [chartData, setChartData] = useState({
-        labels: [],
-        temperature: [],
-        ph: [],
-        turbidity: [],
-        tds: [],
-        co2: []
-    });
-    const [stats, setStats] = useState({
-        avgTemperature: '--',
-        avgPh: '--',
-        avgTurbidity: '--',
-        avgTds: '--',
-        avgCo2: '--'
-    });
+    const [chartData, setChartData] = useState({ labels: [], temperature: [], ph: [], turbidity: [], tds: [], co2: [] });
+    const [stats, setStats] = useState({ avgTemperature: '--', avgPh: '--', avgTurbidity: '--', avgTds: '--', avgCo2: '--' });
     const [chartLoading, setChartLoading] = useState(true);
     const [lastUpdate, setLastUpdate] = useState(null);
+    const [latestSensor, setLatestSensor] = useState(null);
+    const [sensorStatus, setSensorStatus] = useState({});
 
     const periods = [
         { key: 'daily', label: 'Daily' },
         { key: 'weekly', label: 'Weekly' },
-        { key: 'monthly', label: 'Monthly' }
+        { key: 'monthly', label: 'Monthly' },
     ];
 
-    useEffect(() => {
-        fetchReportData(activePeriod);
-    }, [activePeriod]);
-
-    // Subscribe to real-time sensor updates for chart
-    useEffect(() => {
-        const unsubscribe = socketService.subscribe('sensor-update', (data) => {
-            // Update chart data with new readings
-            setChartData(prev => ({
-                labels: [...prev.labels, new Date()].slice(-100),
-                temperature: [...prev.temperature, data.temperature].slice(-100),
-                ph: [...prev.ph, data.ph].slice(-100),
-                turbidity: [...prev.turbidity, data.turbidity].slice(-100),
-                tds: [...prev.tds, data.tds].slice(-100),
-                co2: [...prev.co2, data.co2].slice(-100)
-            }));
-
-            // Update last update time
-            setLastUpdate(new Date());
-
-            // Recalculate running averages for current session
-            setStats(prev => {
-                const calcRunningAvg = (prevAvg, newVal, label) => {
-                    if (newVal === null || newVal === undefined) return prevAvg;
-                    if (prevAvg === '--') return newVal.toFixed(1) + label;
-                    const prevNum = parseFloat(prevAvg);
-                    const newAvg = ((prevNum + newVal) / 2).toFixed(1);
-                    return newAvg + label;
-                };
-
-                return {
-                    ...prev,
-                    avgTemperature: calcRunningAvg(prev.avgTemperature, data.temperature, '°C'),
-                    avgPh: data.ph !== undefined ? data.ph.toFixed(1) : prev.avgPh,
-                    avgTurbidity: calcRunningAvg(prev.avgTurbidity, data.turbidity, ' NTU'),
-                    avgTds: calcRunningAvg(prev.avgTds, data.tds, ' ppm'),
-                    avgCo2: calcRunningAvg(prev.avgCo2, data.co2, ' ppm')
-                };
-            });
-        });
-
-        return () => unsubscribe();
-    }, []);
-
-    const fetchReportData = async (period) => {
+    // ── Fetch aggregated chart data from MongoDB ──────────────────────────────
+    const fetchReportData = useCallback(async (period) => {
         setChartLoading(true);
         try {
             const data = await getHistoricalData(period);
-            if (data && data.readings) {
+            if (data && data.readings && data.readings.length > 0) {
+                const readings = data.readings;
                 setChartData({
-                    labels: data.readings.map(r => r.timestamp),
-                    temperature: data.readings.map(r => r.temperature),
-                    ph: data.readings.map(r => r.ph),
-                    turbidity: data.readings.map(r => r.turbidity),
-                    tds: data.readings.map(r => r.tds),
-                    co2: data.readings.map(r => r.co2)
+                    labels: readings.map(r => r.timestamp),
+                    temperature: readings.map(r => r.temperature),
+                    ph: readings.map(r => r.ph),
+                    turbidity: readings.map(r => r.turbidity),
+                    tds: readings.map(r => r.tds),
+                    co2: readings.map(r => r.co2),
                 });
 
-                // Calculate averages
-                const readings = data.readings;
-                if (readings.length > 0) {
-                    const avg = (arr) => {
-                        const valid = arr.filter(v => v !== null && v !== undefined);
-                        return valid.length > 0
-                            ? (valid.reduce((a, b) => a + b, 0) / valid.length).toFixed(1)
-                            : '--';
-                    };
-
-                    setStats({
-                        avgTemperature: avg(readings.map(r => r.temperature)) + '°C',
-                        avgPh: avg(readings.map(r => r.ph)),
-                        avgTurbidity: avg(readings.map(r => r.turbidity)) + ' NTU',
-                        avgTds: avg(readings.map(r => r.tds)) + ' ppm',
-                        avgCo2: avg(readings.map(r => r.co2)) + ' ppm'
-                    });
-                }
+                setStats({
+                    avgTemperature: avg(readings.map(r => r.temperature)) != null ? avg(readings.map(r => r.temperature)) + '°C' : '--',
+                    avgPh: avg(readings.map(r => r.ph)) != null ? avg(readings.map(r => r.ph)) : '--',
+                    avgTurbidity: avg(readings.map(r => r.turbidity)) != null ? avg(readings.map(r => r.turbidity)) + ' NTU' : '--',
+                    avgTds: avg(readings.map(r => r.tds)) != null ? avg(readings.map(r => r.tds)) + ' ppm' : '--',
+                    avgCo2: avg(readings.map(r => r.co2)) != null ? avg(readings.map(r => r.co2)) + ' ppm' : '--',
+                });
+            } else {
+                // We got a response but no data yet — likely empty DB for this period
+                setChartData({ labels: [], temperature: [], ph: [], turbidity: [], tds: [], co2: [] });
+                setStats({ avgTemperature: 'No data', avgPh: 'No data', avgTurbidity: 'No data', avgTds: 'No data', avgCo2: 'No data' });
             }
         } catch (error) {
             console.error('Failed to fetch report data:', error);
-            // Set demo data for display
-            const demoLabels = Array.from({ length: 24 }, (_, i) => {
-                const d = new Date();
-                d.setHours(d.getHours() - (23 - i));
-                return d;
-            });
-
-            setChartData({
-                labels: demoLabels,
-                temperature: demoLabels.map(() => 25 + Math.random() * 3),
-                ph: demoLabels.map(() => 7 + Math.random() * 0.5),
-                turbidity: demoLabels.map(() => 20 + Math.random() * 15),
-                tds: demoLabels.map(() => 250 + Math.random() * 100),
-                co2: demoLabels.map(() => 400 + Math.random() * 200)
-            });
-
-            setStats({
-                avgTemperature: '26.5°C',
-                avgPh: '7.2',
-                avgTurbidity: '25 NTU',
-                avgTds: '300 ppm',
-                avgCo2: '500 ppm'
-            });
+            setChartData({ labels: [], temperature: [], ph: [], turbidity: [], tds: [], co2: [] });
         } finally {
             setChartLoading(false);
         }
-    };
+    }, []);
 
+    // ── Period change ─────────────────────────────────────────────────────────
+    useEffect(() => {
+        fetchReportData(activePeriod);
+    }, [activePeriod, fetchReportData]);
+
+    // ── Poll latest sensor reading for status panel ───────────────────────────
+    useEffect(() => {
+        const checkStatus = async () => {
+            try {
+                const latest = await getSensorData();
+                setLatestSensor(latest);
+
+                // A sensor field is "online" if its value is not null and was updated
+                // recently (within 5 minutes)
+                const now = Date.now();
+                const ts = latest?.timestamp ? new Date(latest.timestamp).getTime() : 0;
+                const age = now - ts; // ms
+                const onlineThreshold = 5 * 60 * 1000; // 5 min
+
+                const statusMap = {};
+                sensorFields.forEach(({ key }) => {
+                    statusMap[key] = age < onlineThreshold && latest?.[key] !== null && latest?.[key] !== undefined;
+                });
+                setSensorStatus(statusMap);
+            } catch {
+                // all offline
+                const statusMap = {};
+                sensorFields.forEach(({ key }) => { statusMap[key] = false; });
+                setSensorStatus(statusMap);
+            }
+        };
+
+        checkStatus();
+        const interval = setInterval(checkStatus, 30000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // ── Real-time socket updates ──────────────────────────────────────────────
+    useEffect(() => {
+        const unsubscribe = socketService.subscribe('sensor-update', (data) => {
+            setLastUpdate(new Date());
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // ── render ────────────────────────────────────────────────────────────────
     return (
         <div className="reports-page">
+
+            {/* ── Header ── */}
             <div className="page-header">
-                <h2 className="page-title">Reports & Analytics</h2>
+                <h2 className="page-title">Reports &amp; Analytics</h2>
                 <p className="page-subtitle">Historical data analysis and trend reports</p>
                 {lastUpdate && (
                     <p style={{ fontSize: '0.8rem', color: 'var(--color-success)', marginTop: '4px' }}>
@@ -152,7 +133,7 @@ const Reports = () => {
                 )}
             </div>
 
-            {/* Filter Buttons */}
+            {/* ── Period selector ── */}
             <div className="filter-group">
                 {periods.map((period) => (
                     <button
@@ -165,105 +146,74 @@ const Reports = () => {
                 ))}
             </div>
 
-            {/* Current Real-time Values from context — always visible */}
-            <section className="card" style={{ marginBottom: 'var(--spacing-lg)', background: 'linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(46, 204, 113, 0.1))' }}>
+            {/* ── Sensor Status Panel ── */}
+            <section className="card" style={{ marginBottom: 'var(--spacing-lg)' }}>
                 <h3 style={{ marginBottom: 'var(--spacing-md)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    🔴 Live Sensor Values
-                    <span style={{
-                        width: '8px',
-                        height: '8px',
-                        borderRadius: '50%',
-                        background: '#2ecc71',
-                        animation: 'pulse 1.5s infinite',
-                        display: 'inline-block'
-                    }}></span>
+                    📡 Sensor Status
+                    <span style={{ fontSize: '0.75rem', color: 'var(--color-gray-400)', fontWeight: 400 }}>
+                        (last reading: {latestSensor?.timestamp
+                            ? new Date(latestSensor.timestamp).toLocaleString()
+                            : 'N/A'})
+                    </span>
                 </h3>
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                    gap: 'var(--spacing-md)'
-                }}>
-                    <div className="live-value">
-                        <span className="live-icon">🌡️</span>
-                        <span className="live-label">Temp</span>
-                        <span className="live-num">{sensorData.temperature?.toFixed(1) ?? '--'}°C</span>
-                    </div>
-                    <div className="live-value">
-                        <span className="live-icon">🧪</span>
-                        <span className="live-label">pH</span>
-                        <span className="live-num">{sensorData.ph?.toFixed(2) ?? '--'}</span>
-                    </div>
-                    <div className="live-value">
-                        <span className="live-icon">🌊</span>
-                        <span className="live-label">Turbidity</span>
-                        <span className="live-num">{sensorData.turbidity ?? '--'} NTU</span>
-                    </div>
-                    <div className="live-value">
-                        <span className="live-icon">💧</span>
-                        <span className="live-label">TDS</span>
-                        <span className="live-num">{sensorData.tds?.toFixed(0) ?? '--'} ppm</span>
-                    </div>
-                    <div className="live-value">
-                        <span className="live-icon">🌿</span>
-                        <span className="live-label">CO2</span>
-                        <span className="live-num">{sensorData.co2 ?? '--'} ppm</span>
-                    </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 'var(--spacing-md)' }}>
+                    {sensorFields.map(({ key, label, icon, unit }) => {
+                        const online = sensorStatus[key];
+                        const val = latestSensor?.[key];
+                        return (
+                            <div key={key} className="sensor-status-box" data-online={online}>
+                                <span style={{ fontSize: '1.3rem' }}>{icon}</span>
+                                <span className="sensor-status-label">{label}</span>
+                                <span className="sensor-status-dot" style={{ background: online ? '#2ecc71' : '#e74c3c' }}>
+                                    {online ? '● Online' : '○ Offline'}
+                                </span>
+                                <span className="sensor-status-val">
+                                    {val !== null && val !== undefined ? Number(val).toFixed(1) + unit : '--'}
+                                </span>
+                            </div>
+                        );
+                    })}
                 </div>
             </section>
 
-            {/* Statistics Overview */}
+            {/* ── Average Stats (from MongoDB) ── */}
             <section className="card" style={{ marginBottom: 'var(--spacing-xl)' }}>
                 <h3 style={{ marginBottom: 'var(--spacing-lg)' }}>
                     {activePeriod.charAt(0).toUpperCase() + activePeriod.slice(1)} Averages
+                    <span style={{ fontSize: '0.75rem', color: 'var(--color-gray-400)', fontWeight: 400, marginLeft: 8 }}>from MongoDB</span>
                 </h3>
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                    gap: 'var(--spacing-md)'
-                }}>
-                    <div className="stat-box">
-                        <span className="stat-icon">🌡️</span>
-                        <span className="stat-label">Temperature</span>
-                        <span className="stat-value">{stats.avgTemperature}</span>
-                    </div>
-                    <div className="stat-box">
-                        <span className="stat-icon">🧪</span>
-                        <span className="stat-label">pH Level</span>
-                        <span className="stat-value">{stats.avgPh}</span>
-                    </div>
-                    <div className="stat-box">
-                        <span className="stat-icon">🌊</span>
-                        <span className="stat-label">Turbidity</span>
-                        <span className="stat-value">{stats.avgTurbidity}</span>
-                    </div>
-                    <div className="stat-box">
-                        <span className="stat-icon">💧</span>
-                        <span className="stat-label">TDS</span>
-                        <span className="stat-value">{stats.avgTds}</span>
-                    </div>
-                    <div className="stat-box">
-                        <span className="stat-icon">🌿</span>
-                        <span className="stat-label">CO2</span>
-                        <span className="stat-value">{stats.avgCo2}</span>
-                    </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--spacing-md)' }}>
+                    <div className="stat-box"><span className="stat-icon">🌡️</span><span className="stat-label">Temperature</span><span className="stat-value">{stats.avgTemperature}</span></div>
+                    <div className="stat-box"><span className="stat-icon">🧪</span><span className="stat-label">pH Level</span><span className="stat-value">{stats.avgPh}</span></div>
+                    <div className="stat-box"><span className="stat-icon">🌊</span><span className="stat-label">Turbidity</span><span className="stat-value">{stats.avgTurbidity}</span></div>
+                    <div className="stat-box"><span className="stat-icon">💧</span><span className="stat-label">TDS</span><span className="stat-value">{stats.avgTds}</span></div>
+                    <div className="stat-box"><span className="stat-icon">🌿</span><span className="stat-label">CO₂</span><span className="stat-value">{stats.avgCo2}</span></div>
                 </div>
             </section>
 
+            {/* ── Trend Charts ── */}
             {chartLoading ? (
                 <div className="chart-container" style={{ textAlign: 'center', padding: 'var(--spacing-2xl)' }}>
-                    <div className="spinner" style={{ margin: '0 auto var(--spacing-md)' }}></div>
-                    <p style={{ color: 'var(--color-gray-400)' }}>Loading chart data...</p>
+                    <div className="spinner" style={{ margin: '0 auto var(--spacing-md)' }} />
+                    <p style={{ color: 'var(--color-gray-400)' }}>Loading {activePeriod} chart data from MongoDB…</p>
+                </div>
+            ) : chartData.labels.length === 0 ? (
+                <div className="chart-container" style={{ textAlign: 'center', padding: 'var(--spacing-2xl)' }}>
+                    <p style={{ fontSize: '2rem' }}>📭</p>
+                    <p style={{ color: 'var(--color-gray-400)' }}>No {activePeriod} data found in MongoDB yet.</p>
+                    <p style={{ color: 'var(--color-gray-500)', fontSize: '0.85rem' }}>Data will appear once the ESP32 starts sending readings.</p>
                 </div>
             ) : (
                 <>
                     {/* Water Quality Chart */}
                     <ChartPanel
                         title="Water Quality Trends"
+                        period={activePeriod}
                         datasets={[
                             { sensorType: 'temperature', label: 'Temperature (°C)', data: chartData.temperature },
                             { sensorType: 'ph', label: 'pH Level', data: chartData.ph },
                             { sensorType: 'turbidity', label: 'Turbidity (NTU)', data: chartData.turbidity },
-                            { sensorType: 'tds', label: 'TDS (ppm)', data: chartData.tds }
+                            { sensorType: 'tds', label: 'TDS (ppm)', data: chartData.tds },
                         ]}
                         labels={chartData.labels}
                         height={350}
@@ -271,9 +221,10 @@ const Reports = () => {
 
                     {/* Air Quality Chart */}
                     <ChartPanel
-                        title="Air Quality Trends"
+                        title="Air Quality Trends (CO₂)"
+                        period={activePeriod}
                         datasets={[
-                            { sensorType: 'co2', label: 'CO2 Level (ppm)', data: chartData.co2 }
+                            { sensorType: 'co2', label: 'CO₂ Level (ppm)', data: chartData.co2 },
                         ]}
                         labels={chartData.labels}
                         height={250}
@@ -282,71 +233,54 @@ const Reports = () => {
                 </>
             )}
 
-            <Link to="/" className="btn-back">
-                ← Back to Home
-            </Link>
+            <Link to="/" className="btn-back">← Back to Home</Link>
 
-            <style jsx>{`
-        .stat-box {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: var(--spacing-md);
-          background: rgba(0, 0, 0, 0.2);
-          border-radius: var(--border-radius-md);
-          text-align: center;
-        }
-        
-        .stat-icon {
-          font-size: 1.5rem;
-          margin-bottom: var(--spacing-xs);
-        }
-        
-        .stat-label {
-          font-size: 0.75rem;
-          color: var(--color-gray-400);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          margin-bottom: var(--spacing-xs);
-        }
-        
-        .stat-value {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: var(--color-white);
-        }
-
-        .live-value {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: var(--spacing-sm);
-          background: rgba(0, 0, 0, 0.2);
-          border-radius: var(--border-radius-md);
-          text-align: center;
-        }
-
-        .live-icon {
-          font-size: 1.2rem;
-        }
-
-        .live-label {
-          font-size: 0.7rem;
-          color: var(--color-gray-400);
-          text-transform: uppercase;
-        }
-
-        .live-num {
-          font-size: 1.1rem;
-          font-weight: 700;
-          color: var(--color-primary);
-        }
-
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
-        }
-      `}</style>
+            <style>{`
+                .sensor-status-box {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    padding: var(--spacing-md);
+                    background: rgba(0,0,0,0.2);
+                    border-radius: var(--border-radius-md);
+                    text-align: center;
+                    gap: 4px;
+                    transition: border 0.2s;
+                    border: 1px solid transparent;
+                }
+                .sensor-status-box[data-online="true"]  { border-color: rgba(46,204,113,0.3); }
+                .sensor-status-box[data-online="false"] { border-color: rgba(231,76,60,0.2);  }
+                .sensor-status-label {
+                    font-size: 0.7rem;
+                    color: var(--color-gray-400);
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .sensor-status-dot {
+                    font-size: 0.65rem;
+                    padding: 2px 8px;
+                    border-radius: 20px;
+                    color: #fff;
+                }
+                .sensor-status-val {
+                    font-size: 1rem;
+                    font-weight: 700;
+                    color: var(--color-white);
+                }
+                .stat-box {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    padding: var(--spacing-md);
+                    background: rgba(0,0,0,0.2);
+                    border-radius: var(--border-radius-md);
+                    text-align: center;
+                }
+                .stat-icon  { font-size: 1.5rem; margin-bottom: var(--spacing-xs); }
+                .stat-label { font-size: 0.75rem; color: var(--color-gray-400); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: var(--spacing-xs); }
+                .stat-value { font-size: 1.25rem; font-weight: 600; color: var(--color-white); }
+                @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+            `}</style>
         </div>
     );
 };

@@ -153,6 +153,13 @@ const Components = () => {
 
     const currentPirStatus = sensorData.pir ? 'Motion detected!' : 'No motion detected';
 
+    // ESP32 online = connected AND last seen within 30s (via systemStatus or lastSensorUpdate)
+    const esp32Online = !!(systemStatus?.esp32?.connected);
+
+    // Water level reading — only show when ESP32 is live
+    const liveWaterLevel = esp32Online ? sensorData.waterLevel : null;
+    const livePir = esp32Online ? sensorData.pir : null;  // null = no data
+
     return (
         <div className="components-page">
             <div className="page-header">
@@ -192,43 +199,66 @@ const Components = () => {
                     <div className="sensor-card">
                         <div className="sensor-icon">👁️</div>
                         <div className="sensor-label">PIR Status</div>
-                        <div className="sensor-value" style={{
-                            fontSize: '1.5rem',
-                            color: sensorData.pir ? 'var(--color-warning)' : 'var(--color-gray-400)'
-                        }}>
-                            {sensorData.pir ? 'Active' : 'Inactive'}
-                        </div>
-                        <div style={{
-                            marginTop: 'var(--spacing-sm)',
-                            color: 'var(--color-gray-400)',
-                            fontSize: '0.9rem'
-                        }}>
-                            {currentPirStatus}
-                        </div>
+                        {esp32Online ? (
+                            <>
+                                <div className="sensor-value" style={{
+                                    fontSize: '1.5rem',
+                                    color: livePir ? 'var(--color-warning)' : 'var(--color-gray-400)'
+                                }}>
+                                    {livePir ? 'Active' : 'Inactive'}
+                                </div>
+                                <div style={{ marginTop: 'var(--spacing-sm)', color: 'var(--color-gray-400)', fontSize: '0.9rem' }}>
+                                    {livePir ? 'Motion detected!' : 'No motion detected'}
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="sensor-value" style={{ fontSize: '1.5rem', color: 'var(--color-gray-600)' }}>--</div>
+                                <div style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    📡 ESP32 Offline
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Water Level - Custom display with calibration */}
                     <div className="sensor-card">
                         <div className="sensor-icon">💧</div>
                         <div className="sensor-label">Water Level</div>
-                        <div className="sensor-value" style={{
-                            fontSize: '2rem',
-                            color: getStatusColor(getWaterLevelDisplayStatus())
-                        }}>
-                            {sensorData.waterLevel !== null ? `${sensorData.waterLevel.toFixed(1)} cm` : '--'}
-                        </div>
-                        <div style={{
-                            marginTop: 'var(--spacing-sm)',
-                            padding: '4px 12px',
-                            borderRadius: '12px',
-                            background: getStatusColor(getWaterLevelDisplayStatus()),
-                            color: '#fff',
-                            fontSize: '0.85rem',
-                            fontWeight: '600',
-                            display: 'inline-block'
-                        }}>
-                            {getWaterLevelDisplayLabel()}
-                        </div>
+                        {esp32Online && liveWaterLevel !== null ? (
+                            <>
+                                <div className="sensor-value" style={{
+                                    fontSize: '2rem',
+                                    color: getStatusColor(getWaterLevelDisplayStatus())
+                                }}>
+                                    {liveWaterLevel.toFixed(1)} cm
+                                </div>
+                                <div style={{
+                                    marginTop: 'var(--spacing-sm)',
+                                    padding: '4px 12px',
+                                    borderRadius: '12px',
+                                    background: getStatusColor(getWaterLevelDisplayStatus()),
+                                    color: '#fff',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '600',
+                                    display: 'inline-block'
+                                }}>
+                                    {getWaterLevelDisplayLabel()}
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="sensor-value" style={{ fontSize: '2rem', color: 'var(--color-gray-600)' }}>--</div>
+                                <div style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--color-danger)' }}>
+                                    📡 ESP32 Offline
+                                </div>
+                                {calibration.calibrated && (
+                                    <div style={{ marginTop: '4px', fontSize: '0.75rem', color: 'var(--color-gray-500)' }}>
+                                        ✅ Calibration saved (Full: {calibration.fullLevel}cm / Empty: {calibration.emptyLevel}cm)
+                                    </div>
+                                )}
+                            </>
+                        )}
                         <button
                             onClick={() => setShowCalibration(!showCalibration)}
                             style={{
@@ -274,9 +304,14 @@ const Components = () => {
                         <p style={{ color: 'var(--color-gray-400)', fontSize: '0.8rem', marginBottom: '4px' }}>
                             Current Sensor Reading
                         </p>
-                        <p style={{ fontSize: '2rem', fontWeight: '700', color: 'var(--color-primary)' }}>
-                            {sensorData.waterLevel !== null ? `${sensorData.waterLevel.toFixed(1)} cm` : 'Waiting...'}
+                        <p style={{ fontSize: '2rem', fontWeight: '700', color: esp32Online ? 'var(--color-primary)' : 'var(--color-gray-600)' }}>
+                            {esp32Online && liveWaterLevel !== null ? `${liveWaterLevel.toFixed(1)} cm` : '—'}
                         </p>
+                        {!esp32Online && (
+                            <p style={{ fontSize: '0.8rem', color: 'var(--color-danger)', marginTop: '4px' }}>
+                                📡 Connect ESP32 to capture a live reading
+                            </p>
+                        )}
                     </div>
 
                     {/* Calibration Buttons */}
@@ -288,15 +323,16 @@ const Components = () => {
                     }}>
                         <button
                             onClick={handleSetFull}
-                            disabled={sensorData.waterLevel === null}
+                            disabled={!esp32Online || liveWaterLevel === null}
+                            title={!esp32Online ? 'ESP32 must be online to calibrate' : 'Click when tank is FULL'}
                             style={{
                                 padding: 'var(--spacing-md)',
                                 background: 'linear-gradient(135deg, #27ae60, #2ecc71)',
                                 border: 'none',
                                 borderRadius: 'var(--border-radius-md)',
                                 color: '#fff',
-                                cursor: sensorData.waterLevel !== null ? 'pointer' : 'not-allowed',
-                                opacity: sensorData.waterLevel !== null ? 1 : 0.5,
+                                cursor: (esp32Online && liveWaterLevel !== null) ? 'pointer' : 'not-allowed',
+                                opacity: (esp32Online && liveWaterLevel !== null) ? 1 : 0.4,
                                 fontWeight: '600',
                                 fontSize: '0.9rem'
                             }}
@@ -304,21 +340,22 @@ const Components = () => {
                             🟢 Set as FULL
                             <br />
                             <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
-                                (Current: {calibration.fullLevel} cm)
+                                (Saved: {calibration.fullLevel} cm)
                             </span>
                         </button>
 
                         <button
                             onClick={handleSetEmpty}
-                            disabled={sensorData.waterLevel === null}
+                            disabled={!esp32Online || liveWaterLevel === null}
+                            title={!esp32Online ? 'ESP32 must be online to calibrate' : 'Click when tank is EMPTY'}
                             style={{
                                 padding: 'var(--spacing-md)',
                                 background: 'linear-gradient(135deg, #e74c3c, #c0392b)',
                                 border: 'none',
                                 borderRadius: 'var(--border-radius-md)',
                                 color: '#fff',
-                                cursor: sensorData.waterLevel !== null ? 'pointer' : 'not-allowed',
-                                opacity: sensorData.waterLevel !== null ? 1 : 0.5,
+                                cursor: (esp32Online && liveWaterLevel !== null) ? 'pointer' : 'not-allowed',
+                                opacity: (esp32Online && liveWaterLevel !== null) ? 1 : 0.4,
                                 fontWeight: '600',
                                 fontSize: '0.9rem'
                             }}
@@ -326,7 +363,7 @@ const Components = () => {
                             🔴 Set as EMPTY
                             <br />
                             <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
-                                (Current: {calibration.emptyLevel} cm)
+                                (Saved: {calibration.emptyLevel} cm)
                             </span>
                         </button>
 

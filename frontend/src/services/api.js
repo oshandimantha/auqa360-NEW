@@ -29,14 +29,31 @@ export const getSensorData = async () => {
     }
 };
 
-// Get historical sensor data
-export const getHistoricalData = async (period = 'daily', sensorType = null) => {
+// Get aggregated (averaged) sensor data for trend charts
+// daily   → hourly buckets for past 24h
+// weekly  → daily  buckets for past 7 days
+// monthly → daily  buckets for past 30 days
+export const getHistoricalData = async (period = 'daily') => {
     try {
-        const params = { period };
-        if (sensorType) params.sensor = sensorType;
+        const intervalMap = { daily: 'hour', weekly: 'day', monthly: 'day' };
+        const interval = intervalMap[period] || 'hour';
 
-        const response = await api.get('/sensors/history', { params });
-        return response.data;
+        const response = await api.get('/sensors/aggregated', { params: { period, interval } });
+
+        // Normalise response: sensors/aggregated returns { data: [...] }
+        // Map it to { readings: [...] } shape so Reports.jsx doesn't need changing further
+        const raw = response.data?.data || [];
+        const readings = raw.map(r => ({
+            timestamp: r.timestamp,
+            temperature: r.avgTemperature,
+            ph: r.avgPh,
+            turbidity: r.avgTurbidity,
+            tds: r.avgTds,
+            co2: r.avgCo2,
+            waterLevel: r.avgWaterLevel
+        }));
+
+        return { period, readings };
     } catch (error) {
         console.error('Failed to fetch historical data:', error);
         throw error;

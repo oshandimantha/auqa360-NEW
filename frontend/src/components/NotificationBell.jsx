@@ -19,6 +19,7 @@ const NotificationBell = () => {
     // Get icon for alert type
     const getAlertIcon = (type, source) => {
         if (source === 'pir') return '👁️';
+        if (source === 'security') return '🛡️';
         switch (type) {
             case 'danger': return '🚨';
             case 'warning': return '⚠️';
