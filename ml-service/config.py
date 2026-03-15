@@ -36,7 +36,13 @@ TOPIC_FISH_GAS = "aquasense/ml/fish-gas"
 
 GAS_LABELS = {0: "SAFE", 1: "DANGER"}
 
-DEFAULT_CAMERA = int(os.getenv("CAMERA_INDEX", 0))
+# ── Camera Indices ────────────────────────────────────────────
+# Change these two numbers to match your physical camera setup:
+#   0 = first camera  (usually built-in webcam)
+#   1 = second camera (first USB)
+#   2 = third camera  (second USB)
+DEFAULT_CAMERA          = int(os.getenv("CAMERA_INDEX",          0))  # Fish Disease camera
+DEFAULT_SECURITY_CAMERA = int(os.getenv("SECURITY_CAMERA_INDEX", 1))  # Security camera
 
 STREAM_FPS = int(os.getenv("STREAM_FPS", 24))
 YOLO_INPUT_SIZE = int(os.getenv("YOLO_SIZE", 416))

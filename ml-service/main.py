@@ -1,4 +1,4 @@
-import json
+﻿import json
 import time
 import threading
 import sys
@@ -587,24 +587,22 @@ def main():
         print("   Required: water_quality_model.pkl, scaler.pkl, best.pt, fish_feeding_model.pkl, feeding_scaler.pkl")
         sys.exit(1)
 
-    # Auto camera assignment
-    print("\n📷 Auto-assigning cameras...")
+    # Camera assignment -- edit DEFAULT_CAMERA / DEFAULT_SECURITY_CAMERA in config.py to change
+    print("\n[CAM] Camera assignment (from config.py)...")
     all_cameras = fd_detector.scan_cameras()
-    fish_cam_index = all_cameras[0]["index"] if len(all_cameras) >= 1 else 0
+    scanned_indices = [c["index"] for c in all_cameras]
 
-    # Security camera: try the 2nd camera from scan, then fall back to index 1
-    if len(all_cameras) >= 2:
-        sec_cam_index = all_cameras[1]["index"]
-        print(f"   🐟 Fish disease → Camera {fish_cam_index}")
-        print(f"   🛡️ Security     → Camera {sec_cam_index}")
-    else:
-        # Only 1 camera found in scan — still try index 1 for security
-        # (USB camera might not have been fully ready during scan)
-        sec_cam_index = 1 if fish_cam_index == 0 else 0
-        print(f"   � Fish disease → Camera {fish_cam_index}")
-        print(f"   ⚠️ Only 1 camera found in scan — trying Camera {sec_cam_index} for security")
-        print(f"   💡 If security camera fails, plug in USB camera then type: security camera <index>")
+    fish_cam_index = config.DEFAULT_CAMERA
+    sec_cam_index  = config.DEFAULT_SECURITY_CAMERA
 
+    print(f"   [FISH] Fish Disease  -> Camera {fish_cam_index}  (DEFAULT_CAMERA in config.py)")
+    print(f"   [SEC]  Security      -> Camera {sec_cam_index}  (DEFAULT_SECURITY_CAMERA in config.py)")
+
+    if fish_cam_index not in scanned_indices:
+        print(f"   [WARN] Camera {fish_cam_index} not detected yet -- check USB connection")
+    if sec_cam_index not in scanned_indices:
+        print(f"   [WARN] Camera {sec_cam_index} not detected yet -- will auto-retry every 5s")
+    print("   [TIP] Runtime override: camera <idx>  or  security camera <idx>")
     # Wire up security stream function
     sec_detector.set_stream_fn(update_security_frame)
 
