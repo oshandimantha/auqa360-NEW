@@ -89,7 +89,7 @@ const Navbar = () => {
                         Controls
                     </Link>
                     <Link to="/security" className={`nav-link ${isActive('/security') ? 'active' : ''}`}>
-                        🛡️ Security
+                        Security
                     </Link>
                 </nav>
                 <NotificationBell />

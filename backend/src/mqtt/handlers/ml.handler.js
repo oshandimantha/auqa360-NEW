@@ -205,6 +205,7 @@ const mlHandler = {
         }
 
         if (io) {
+            console.log(`[DEBUG] Emitting security-update to frontend. Person? ${data.personDetected}, Animal? ${data.animalDetected}, Cam: ${data.cameraSource}`);
             io.emit('security-update', {
                 personDetected: data.personDetected || false,
                 animalDetected: data.animalDetected || false,

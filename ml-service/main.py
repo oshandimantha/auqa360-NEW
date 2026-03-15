@@ -264,12 +264,14 @@ def fish_disease_loop():
 def security_loop():
     
     global running, security_enabled
-    print("🛡️ Security detection loop started (human/animal detection)")
+    print("⚡ Security detection loop started (human/animal detection)")
 
-    inference_count = 0
-    inference_start = time.time()
     last_mqtt_publish = 0
-    MQTT_MIN_INTERVAL = 0.33
+    last_heartbeat = 0
+    last_cam_retry = 0
+    MQTT_MIN_INTERVAL = 0.5
+    HEARTBEAT_INTERVAL = 2.0
+    CAM_RETRY_INTERVAL = 5.0
 
     while running:
         if not security_enabled:
@@ -277,39 +279,64 @@ def security_loop():
             continue
 
         try:
-            t0 = time.time()
+            now = time.time()
+            cam_idx = sec_detector.camera_index if sec_detector.camera_index >= 0 else 1
+
+            # Auto-retry dead camera
+            if sec_detector.camera is None or not sec_detector.camera.is_opened():
+                if now - last_cam_retry > CAM_RETRY_INTERVAL:
+                    last_cam_retry = now
+                    print(f"⚡ Security camera not open — retrying camera {cam_idx}...")
+                    sec_detector.open_camera(cam_idx)
+
+                # Send offline heartbeat so frontend shows camera is down
+                if now - last_heartbeat >= HEARTBEAT_INTERVAL and mqtt_client:
+                    last_heartbeat = now
+                    mqtt_client.publish(config.TOPIC_SECURITY, json.dumps({
+                        "personDetected": False,
+                        "animalDetected": False,
+                        "detections": [],
+                        "detectedClasses": [],
+                        "detectionCount": 0,
+                        "maxConfidence": 0,
+                        "cameraSource": str(cam_idx),
+                        "cameraOnline": False,
+                        "inferenceMs": 0,
+                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S")
+                    }))
+                time.sleep(0.5)
+                continue
 
             result = sec_detector.detect()
-
             now = time.time()
-            if result and mqtt_client and (now - last_mqtt_publish) >= MQTT_MIN_INTERVAL:
-                last_mqtt_publish = now
-                mqtt_client.publish(
-                    config.TOPIC_SECURITY,
-                    json.dumps(result)
-                )
 
-            inference_time = time.time() - t0
-
-            inference_count += 1
-            elapsed = time.time() - inference_start
-            if elapsed >= 10.0:
-                yolo_fps = inference_count / elapsed
-                comp_fps = sec_detector.compositor.actual_fps if sec_detector.compositor else 0
-                print(f"🛡️ Security YOLO: {yolo_fps:.1f} FPS | Stream: {comp_fps:.1f} FPS")
-                inference_count = 0
-                inference_start = time.time()
-
-            remaining = 0.05 - inference_time
-            if remaining > 0:
-                time.sleep(remaining)
+            if result is not None and mqtt_client:
+                if now - last_mqtt_publish >= MQTT_MIN_INTERVAL:
+                    last_mqtt_publish = now
+                    last_heartbeat = now
+                    result["cameraOnline"] = True
+                    mqtt_client.publish(config.TOPIC_SECURITY, json.dumps(result))
+            elif now - last_heartbeat >= HEARTBEAT_INTERVAL and mqtt_client:
+                last_heartbeat = now
+                mqtt_client.publish(config.TOPIC_SECURITY, json.dumps({
+                    "personDetected": False,
+                    "animalDetected": False,
+                    "detections": [],
+                    "detectedClasses": [],
+                    "detectionCount": 0,
+                    "maxConfidence": 0,
+                    "cameraSource": str(cam_idx),
+                    "cameraOnline": True,
+                    "inferenceMs": 0,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S")
+                }))
 
         except Exception as e:
             print(f"⚠️ Security loop error: {e}")
             time.sleep(2)
 
     sec_detector.release_camera()
-    print("🛡️ Security detection loop stopped")
+    print("⚡ Security detection loop stopped")
 
 def fish_feeding_loop():
     
@@ -563,15 +590,20 @@ def main():
     # Auto camera assignment
     print("\n📷 Auto-assigning cameras...")
     all_cameras = fd_detector.scan_cameras()
-    fish_cam_index = all_cameras[0]["index"] if len(all_cameras) >= 1 else None
-    sec_cam_index = all_cameras[1]["index"] if len(all_cameras) >= 2 else None
+    fish_cam_index = all_cameras[0]["index"] if len(all_cameras) >= 1 else 0
 
-    if fish_cam_index is not None:
+    # Security camera: try the 2nd camera from scan, then fall back to index 1
+    if len(all_cameras) >= 2:
+        sec_cam_index = all_cameras[1]["index"]
         print(f"   🐟 Fish disease → Camera {fish_cam_index}")
-    if sec_cam_index is not None:
-        print(f"   🛡️ Security → Camera {sec_cam_index}")
+        print(f"   🛡️ Security     → Camera {sec_cam_index}")
     else:
-        print("   ⚠️ Only 1 camera found — security detection disabled (needs a 2nd USB camera)")
+        # Only 1 camera found in scan — still try index 1 for security
+        # (USB camera might not have been fully ready during scan)
+        sec_cam_index = 1 if fish_cam_index == 0 else 0
+        print(f"   � Fish disease → Camera {fish_cam_index}")
+        print(f"   ⚠️ Only 1 camera found in scan — trying Camera {sec_cam_index} for security")
+        print(f"   💡 If security camera fails, plug in USB camera then type: security camera <index>")
 
     # Wire up security stream function
     sec_detector.set_stream_fn(update_security_frame)
@@ -591,7 +623,7 @@ def main():
     if fd_detector.loaded:
         start_stream_server(port=8765)
 
-    if sec_detector.loaded and sec_cam_index is not None:
+    if sec_detector.loaded:
         start_security_stream_server(port=config.SECURITY_STREAM_PORT)
 
     threads = []
@@ -607,8 +639,12 @@ def main():
         fd_thread.start()
         threads.append(fd_thread)
 
-    if sec_detector.loaded and sec_cam_index is not None:
-        sec_detector.open_camera(sec_cam_index)
+    if sec_detector.loaded:
+        # Try to open security camera — if it fails user can reassign via command
+        opened = sec_detector.open_camera(sec_cam_index)
+        if not opened:
+            print(f"   ⚠️ Security camera {sec_cam_index} could not open — security detection paused")
+            print(f"   💡 Type 'security camera 1' or 'security camera 0' to reassign")
         sec_thread = threading.Thread(target=security_loop, daemon=True, name="Security")
         sec_thread.start()
         threads.append(sec_thread)

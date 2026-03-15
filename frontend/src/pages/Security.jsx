@@ -11,32 +11,92 @@ const STREAM_HOST = window.location.hostname !== 'localhost'
 const Security = () => {
     const [securityData, setSecurityData] = useState(null);
     const [streamOnline, setStreamOnline] = useState(false);
+    const [streamError, setStreamError] = useState(false);
+    const [streamConnecting, setStreamConnecting] = useState(true);
     const [lastDetection, setLastDetection] = useState(null);
     const [recentDetections, setRecentDetections] = useState([]);
     const imgRef = useRef(null);
+    const retryTimerRef = useRef(null);
 
-    // Check stream availability
+    // Check stream availability via /health JSON endpoint
     useEffect(() => {
-        const checkStream = () => {
-            const img = new Image();
-            img.onload = () => setStreamOnline(true);
-            img.onerror = () => setStreamOnline(false);
-            img.src = `${STREAM_HOST.replace('/video_feed', '/health')}?t=${Date.now()}`;
+        const checkStream = async () => {
+            try {
+                const res = await fetch(
+                    `${STREAM_HOST.replace('/video_feed', '/health')}?t=${Date.now()}`,
+                    { signal: AbortSignal.timeout(3000) }
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    const isLive = data.stream === true;
+                    setStreamOnline(isLive);
+                    setStreamConnecting(!isLive);
+                    if (isLive) setStreamError(false);
+                } else {
+                    setStreamOnline(false);
+                    setStreamConnecting(false);
+                }
+            } catch {
+                setStreamOnline(false);
+                setStreamConnecting(false);
+            }
         };
         checkStream();
-        const interval = setInterval(checkStream, 5000);
+        const interval = setInterval(checkStream, 4000);
         return () => clearInterval(interval);
     }, []);
+
+    // Auto-retry when stream img errors
+    const handleStreamError = () => {
+        setStreamError(true);
+        setStreamOnline(false);
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = setTimeout(() => {
+            if (imgRef.current) {
+                imgRef.current.src = `${STREAM_HOST}?t=${Date.now()}`;
+                setStreamError(false);
+            }
+        }, 3000);
+    };
+
+    const handleStreamLoad = () => {
+        setStreamOnline(true);
+        setStreamError(false);
+        setStreamConnecting(false);
+    };
 
     // Subscribe to security socket events
     useEffect(() => {
         const unsubscribe = socketService.subscribe('security-update', (data) => {
             setSecurityData(data);
-            if (data.detectionCount > 0) {
+
+            const pCount = (data.detections || []).filter(d => d.class === 'person').length;
+            const isAnimal = data.animalDetected;
+
+            // Only add to history if there's an actual alert (3+ humans OR any animal)
+            if (pCount > 3 || isAnimal) {
                 setLastDetection(new Date());
+
+                // Build summary for history list
+                const summary = [
+                    ...(pCount > 0 ? [`${pCount} Person${pCount > 1 ? 's' : ''}`] : []),
+                    ...((data.detections || [])
+                        .filter(d => d.class !== 'person')
+                        .reduce((acc, d) => {
+                            const existing = acc.find(a => a.cls === d.class);
+                            if (existing) existing.count++;
+                            else acc.push({ cls: d.class, count: 1 });
+                            return acc;
+                        }, [])
+                        .map(a => `${a.count} ${a.cls.charAt(0).toUpperCase() + a.cls.slice(1)}${a.count > 1 ? 's' : ''}`)
+                    )
+                ].join(', ');
+
                 setRecentDetections(prev => [
                     {
-                        classes: data.detectedClasses,
+                        classes: data.detectedClasses || [],
+                        summary: summary,
+                        personCount: pCount,
                         confidence: data.maxConfidence,
                         time: new Date(),
                         personDetected: data.personDetected,
@@ -49,7 +109,28 @@ const Security = () => {
         return () => unsubscribe();
     }, []);
 
-    const hasDetection = securityData && securityData.detectionCount > 0;
+    const personCount = securityData
+        ? securityData.detections.filter(d => d.class === 'person').length
+        : 0;
+    const animalDetected = securityData ? securityData.animalDetected : false;
+
+    // Alert only when: 3+ humans OR any animal detected
+    const hasDetection = (personCount > 3) || animalDetected;
+
+    // Build a readable summary of what was detected
+    const detectedSummary = securityData ? [
+        ...(personCount > 0 ? [`${personCount} Person${personCount > 1 ? 's' : ''}`] : []),
+        ...(securityData.detections
+            .filter(d => d.class !== 'person')
+            .reduce((acc, d) => {
+                const existing = acc.find(a => a.cls === d.class);
+                if (existing) existing.count++;
+                else acc.push({ cls: d.class, count: 1 });
+                return acc;
+            }, [])
+            .map(a => `${a.count} ${a.cls.charAt(0).toUpperCase() + a.cls.slice(1)}${a.count > 1 ? 's' : ''}`)
+        )
+    ].join(', ') : '';
 
     return (
         <div className="page security-page">
@@ -63,24 +144,45 @@ const Security = () => {
                 <div className="security-stream-card">
                     <div className="stream-header">
                         <span className="stream-title">📷 Security Camera Live Feed</span>
-                        <span className={`stream-badge ${streamOnline ? 'badge-online' : 'badge-offline'}`}>
-                            {streamOnline ? '● LIVE' : '○ OFFLINE'}
+                        <span className={`stream-badge ${streamError ? 'badge-offline' :
+                            streamConnecting ? 'badge-connecting' :
+                                streamOnline ? 'badge-online' : 'badge-offline'
+                            }`}>
+                            {streamError ? '○ OFFLINE' :
+                                streamConnecting ? '◌ CONNECTING' :
+                                    streamOnline ? '● LIVE' : '○ OFFLINE'}
                         </span>
                     </div>
                     <div className="stream-wrapper">
-                        {streamOnline ? (
-                            <img
-                                ref={imgRef}
-                                src={STREAM_HOST}
-                                alt="Security Camera Stream"
-                                className="security-stream-img"
-                                onError={() => setStreamOnline(false)}
-                            />
-                        ) : (
+                        {/* Always render the img — MJPEG streams handle their own state */}
+                        <img
+                            ref={imgRef}
+                            src={STREAM_HOST}
+                            alt="Security Camera Stream"
+                            className="security-stream-img"
+                            style={{ display: streamError ? 'none' : 'block' }}
+                            onLoad={handleStreamLoad}
+                            onError={handleStreamError}
+                        />
+                        {streamError && (
                             <div className="stream-placeholder">
                                 <span>📷</span>
                                 <p>Security camera stream offline</p>
                                 <small>Make sure ML service is running with a second USB camera</small>
+                                <button
+                                    onClick={() => {
+                                        setStreamError(false);
+                                        if (imgRef.current) imgRef.current.src = `${STREAM_HOST}?t=${Date.now()}`;
+                                    }}
+                                    style={{ marginTop: '12px', padding: '6px 16px', borderRadius: '8px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '0.8rem' }}
+                                >
+                                    🔄 Retry
+                                </button>
+                            </div>
+                        )}
+                        {streamConnecting && !streamError && (
+                            <div style={{ position: 'absolute', bottom: '12px', left: '12px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }}>
+                                ⏳ Connecting to camera...
                             </div>
                         )}
 
@@ -96,52 +198,64 @@ const Security = () => {
 
                 {/* Right Panel */}
                 <div className="security-info-panel">
-                    {/* Current Status */}
-                    <div className={`security-status-card ${hasDetection ? 'status-alert' : 'status-clear'}`}>
-                        <div className="status-icon-large">
-                            {hasDetection
-                                ? (securityData.personDetected ? '⚠️' : '🐾')
-                                : '✅'}
+
+                    {/* Live Detection Card - always visible */}
+                    <div className="detection-list-card">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <h4 style={{ margin: 0 }}>🔍 Live Detections</h4>
+                            {securityData ? (
+                                <span style={{ fontSize: '0.72rem', color: 'var(--color-gray-400)' }}>
+                                    Cam {securityData.cameraSource} · {securityData.inferenceMs}ms
+                                </span>
+                            ) : (
+                                <span style={{ fontSize: '0.72rem', color: 'var(--color-gray-500)' }}>Waiting…</span>
+                            )}
                         </div>
-                        <div className="status-text">
-                            <h3>{hasDetection
-                                ? (securityData.personDetected ? 'Person Detected!' : 'Animal Detected!')
-                                : 'Area Clear'}</h3>
-                            <p>{hasDetection
-                                ? `${securityData.detectionCount} object(s) — ${securityData.maxConfidence.toFixed(0)}% confidence`
-                                : 'No humans or animals detected'}</p>
-                        </div>
+
+                        {securityData && (securityData.detections || []).length > 0 ? (
+                            <div className="live-detection-table">
+                                {/* Group by class */}
+                                {Object.entries(
+                                    (securityData.detections || []).reduce((acc, d) => {
+                                        const cls = d.class || 'unknown';
+                                        if (!acc[cls]) acc[cls] = { count: 0, maxConf: 0 };
+                                        acc[cls].count++;
+                                        if (d.confidence > acc[cls].maxConf) acc[cls].maxConf = d.confidence;
+                                        return acc;
+                                    }, {})
+                                ).map(([cls, info]) => (
+                                    <div key={cls} className="live-det-row">
+                                        <span className="live-det-icon">{cls === 'person' ? '👤' : '🐾'}</span>
+                                        <span className="live-det-class">{cls.charAt(0).toUpperCase() + cls.slice(1)}</span>
+                                        <span className="live-det-count">×{info.count}</span>
+                                        <span className={`live-det-badge ${cls === 'person' && info.count > 3 ? 'badge-danger' : cls !== 'person' ? 'badge-warning' : 'badge-ok'}`}>
+                                            {cls === 'person' && info.count > 3 ? '⚠ ALERT' : cls !== 'person' ? '⚠ ANIMAL' : '●'}
+                                        </span>
+                                    </div>
+                                ))}
+                                <div style={{ marginTop: '10px', fontSize: '0.72rem', color: 'var(--color-gray-500)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
+                                    🕐 {new Date().toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ padding: '16px 0', textAlign: 'center', color: 'var(--color-gray-500)', fontSize: '0.85rem' }}>
+                                {securityData
+                                    ? <><span style={{ color: '#22c55e', fontSize: '0.7rem' }}>● Monitoring</span> — No detections<br /><small style={{ color: 'var(--color-gray-600)' }}>Camera {securityData.cameraSource} active</small></>
+                                    : 'Waiting for ML service...'}
+                            </div>
+                        )}
                     </div>
 
-                    {/* Current Detections */}
-                    {hasDetection && (
-                        <div className="detection-list-card">
-                            <h4>Current Detections</h4>
-                            {securityData.detections.map((det, i) => (
-                                <div key={i} className="det-item">
-                                    <span className="det-class">
-                                        {det.class === 'person' ? '👤' : '🐾'} {det.class}
-                                    </span>
-                                    <span className="det-conf">{det.confidence.toFixed(1)}%</span>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Stats */}
+                    {/* Detection Stats */}
                     <div className="security-stats-card">
                         <h4>Detection Stats</h4>
                         <div className="stats-grid">
                             <div className="stat-item">
-                                <span className="stat-label">Last Detection</span>
+                                <span className="stat-label">Last Alert</span>
                                 <span className="stat-value">
-                                    {lastDetection ? formatRelativeTime(lastDetection) : 'None'}
-                                </span>
-                            </div>
-                            <div className="stat-item">
-                                <span className="stat-label">Inference Time</span>
-                                <span className="stat-value">
-                                    {securityData ? `${securityData.inferenceMs}ms` : '—'}
+                                    {lastDetection
+                                        ? new Date(lastDetection).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })
+                                        : 'None'}
                                 </span>
                             </div>
                             <div className="stat-item">
@@ -151,7 +265,13 @@ const Security = () => {
                                 </span>
                             </div>
                             <div className="stat-item">
-                                <span className="stat-label">Stream Status</span>
+                                <span className="stat-label">Inference</span>
+                                <span className="stat-value">
+                                    {securityData ? `${securityData.inferenceMs}ms` : '—'}
+                                </span>
+                            </div>
+                            <div className="stat-item">
+                                <span className="stat-label">Stream</span>
                                 <span className={`stat-value ${streamOnline ? 'text-green' : 'text-red'}`}>
                                     {streamOnline ? 'Online' : 'Offline'}
                                 </span>
@@ -159,27 +279,30 @@ const Security = () => {
                         </div>
                     </div>
 
-                    {/* Recent Detection History */}
+                    {/* Detection History */}
                     <div className="detection-history-card">
-                        <h4>Recent Detections</h4>
+                        <h4>Recent Detection Alerts</h4>
                         {recentDetections.length > 0 ? (
                             <div className="history-list">
                                 {recentDetections.map((item, i) => (
                                     <div key={i} className="history-item">
                                         <span className="history-icon">
-                                            {item.personDetected ? '👤' : '🐾'}
+                                            {item.personCount > 3 ? '⚠️' : '🐾'}
                                         </span>
                                         <span className="history-classes">
-                                            {item.classes.join(', ')}
+                                            {item.summary}
                                         </span>
                                         <span className="history-time">
-                                            {formatRelativeTime(item.time)}
+                                            {new Date(item.time).toLocaleString('en-US', {
+                                                month: 'short', day: '2-digit',
+                                                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+                                            })}
                                         </span>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <p className="no-history">No detections recorded this session</p>
+                            <p className="no-history">No alerts recorded this session</p>
                         )}
                     </div>
                 </div>
@@ -257,6 +380,12 @@ const Security = () => {
                     color: #22c55e;
                     border: 1px solid rgba(34, 197, 94, 0.3);
                     animation: pulse-green 2s infinite;
+                }
+
+                .badge-connecting {
+                    background: rgba(251, 191, 36, 0.15);
+                    color: #fbbf24;
+                    border: 1px solid rgba(251, 191, 36, 0.3);
                 }
 
                 .badge-offline {
@@ -338,6 +467,72 @@ const Security = () => {
                 @keyframes pulse-alert {
                     0%, 100% { transform: scale(1); }
                     50% { transform: scale(1.05); }
+                }
+
+                /* Live detection table */
+                .live-detection-table {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                }
+
+                .live-det-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 8px 12px;
+                    border-radius: 8px;
+                    background: rgba(255,255,255,0.04);
+                    border: 1px solid rgba(255,255,255,0.07);
+                }
+
+                .live-det-icon { font-size: 1.1rem; flex-shrink: 0; }
+
+                .live-det-class {
+                    flex: 1;
+                    font-size: 0.88rem;
+                    font-weight: 600;
+                    color: var(--color-gray-100, #f1f5f9);
+                }
+
+                .live-det-count {
+                    font-size: 0.82rem;
+                    color: var(--color-gray-400);
+                    min-width: 28px;
+                }
+
+                .live-det-conf {
+                    font-size: 0.78rem;
+                    color: var(--color-gray-400);
+                    min-width: 38px;
+                    text-align: right;
+                }
+
+                .live-det-badge {
+                    font-size: 0.68rem;
+                    font-weight: 700;
+                    padding: 2px 7px;
+                    border-radius: 4px;
+                    letter-spacing: 0.04em;
+                }
+
+                .badge-danger {
+                    background: rgba(239,68,68,0.2);
+                    color: #ef4444;
+                    border: 1px solid rgba(239,68,68,0.35);
+                    animation: border-pulse 1.2s infinite;
+                }
+
+                .badge-warning {
+                    background: rgba(245,158,11,0.2);
+                    color: #f59e0b;
+                    border: 1px solid rgba(245,158,11,0.35);
+                }
+
+                .badge-ok {
+                    background: rgba(100,116,139,0.15);
+                    color: var(--color-gray-400);
+                    border: 1px solid rgba(255,255,255,0.08);
                 }
 
                 /* Info Panel */

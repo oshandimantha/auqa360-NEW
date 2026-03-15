@@ -79,6 +79,11 @@ class SocketService {
             this.notifyListeners('fish-gas-detection', data);
         });
 
+        // Listen for security detection updates
+        this.socket.on('security-update', (data) => {
+            this.notifyListeners('security-update', data);
+        });
+
         // Listen for device status changes
         this.socket.on('device-status', (data) => {
             this.notifyListeners('device-status', data);

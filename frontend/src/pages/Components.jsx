@@ -458,7 +458,7 @@ const Components = () => {
                         background: 'rgba(0,0,0,0.2)',
                         borderRadius: 'var(--border-radius-md)'
                     }}>
-                        <p style={{ color: 'var(--color-gray-400)', fontSize: '0.8rem' }}>Raspberry Pi / Laptop</p>
+                        <p style={{ color: 'var(--color-gray-400)', fontSize: '0.8rem' }}>Laptop</p>
                         <p style={{
                             color: systemStatus.raspberryPi?.connected ? 'var(--color-success)' : 'var(--color-danger)',
                             fontWeight: '600'
